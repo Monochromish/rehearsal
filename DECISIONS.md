@@ -127,3 +127,179 @@ are a terminal. Otherwise they are passed straight through, so pipes work.
 
 The terminal summary goes to standard error, so piping the wrapped command's
 output somewhere else stays clean.
+
+## Stand-ins for git, npm and gh
+
+The stand-ins are the `rehearse` binary itself, started under the other
+program's name. A copy is put in the session's folder with `git`, `npm` and
+`gh` linked to it, because every git call the agent makes starts it and the
+original may sit on a slow drive.
+
+`git push` is held in any form, including through a simple alias, and so are
+`git send-pack` and `git http-push`, the plumbing underneath it.
+`git push --dry-run` and `npm publish --dry-run` change nothing, so they go to
+the real program.
+
+A push of a branch that doesn't exist fails the way git fails, and is not
+held. Reporting success for it would not be believable.
+
+The output for a held push is worked out locally: the remote's address, the
+branch names and the commit IDs come from the repository, with no contact
+with the remote. Nothing local is changed either. The remote-tracking branch
+stays where it was, so `git status` still says "ahead". Faking that would
+leave the repository lying to the user after a refused push.
+
+Held `gh` commands print nothing and exit 0. Which `gh` commands write is a
+table in `internal/standin`; those that return something the agent will use
+(`pr create`, `issue create`, `gist create`, `pr revert`) are marked there as
+needing the real answer. The plan said to mark these in the handler files,
+but handler files describe web requests, and for a command the stand-in is
+where the knowledge is. Handler files carry the same mark for requests.
+
+A `gh` command in neither the "writes" nor the "reads" table is run as it
+is. The proxy still holds any write it makes.
+
+Standard input is recorded only when the command was told to read it
+(`--body-file -` and the like). Reading it otherwise can wait forever on a
+pipe nobody closes.
+
+The socket the stand-ins report to accepts only `git`, `npm` and `gh` as
+programs, since anything on this machine can write to it and what is reported
+may later be run.
+
+## The second proxy
+
+git and gh both use `POST` for reads: `git fetch` posts to
+`git-upload-pack`, and `gh pr list` posts a GraphQL query. Holding every
+`POST` would break "everything else passes through". So a second proxy
+records requests without holding any, and the stand-ins send the commands
+they know to be read-only through it: all git other than push, and the `gh`
+commands in the "reads" table.
+
+npm doesn't use it. Other npm commands can write to the registry
+(`npm unpublish`, `npm deprecate`), and those should still be caught.
+
+## Held requests
+
+A held request is not in the ledger's request count: it hasn't been sent. If
+it is approved and sent, it is added then, with the identifiers it carried,
+like any other request.
+
+To replay a request its headers are stored along with its body, and they can
+include credentials. They are in the same private file and deleted at the
+same time.
+
+A request too large to keep (over 32 MB) is refused. Letting it through
+would break the hold, and holding it would mean streaming it to disk, which
+isn't built.
+
+When replayed, a request goes straight to the server, not through the proxy,
+and redirects are not followed. Only a 2xx answer counts as applied.
+
+## The reviewer
+
+The model is reached through the OpenAI-compatible endpoint, as the plan
+said. The settings found to work through Ollama's own `/api/chat` are sent
+in their OpenAI form: `reasoning_effort: "none"` for `think: false`, a JSON
+schema in `response_format`, temperature 0 and `max_tokens: 200`. Checked
+against `qwen3.8:27b` on this laptop: valid JSON every time, no thinking
+phase, about 3 to 5 seconds a call and 16 for the first after a load.
+
+A warm-up request goes out in the background at start-up so that the slow
+first call happens while the agent works. Its failure is ignored on purpose.
+
+Up to three actions are reviewed at once. Each result is written to the log
+as it arrives, so the page fills in one by one.
+
+The first time the model fails to answer (connection refused, timeout, an
+error status) it is not asked again in that session, so ten held actions
+don't mean ten timeouts. A reply that fails validation is retried once, then
+that action falls back to the rules.
+
+The model sees the command or request line, the destination, the files and
+commit messages a push would send, which of your details it carries (by
+name, not value), and up to 1,500 characters of a text body with anything
+secret-looking masked. Binary bodies are described by size only.
+
+The reviewer address must resolve to this machine or a private network
+address. An address the user typed that doesn't is an error at start-up. If
+no address was given and none can be worked out, the rules are used.
+
+## Risk floors
+
+The floor is high for: a force push, anything that deletes on the far side,
+a publish, anything carrying a watched identifier, and a push of files whose
+names look like secrets. Three of these are wider than the plan's wording:
+deleting a remote branch and sending a `DELETE` request count as deletions,
+and `gh release create` without `--draft` counts as a publish.
+
+Secret-looking names are `.env` and `.env.*`, the usual private key names
+(`id_rsa`, `id_ed25519` and so on, not their `.pub` halves), key and
+certificate stores by extension, and files named after "credentials" or
+"secrets" as a whole word. `.env.example` is caught too. It often holds
+nothing real, but the name alone can't tell.
+
+The file list comes from the commits that no remote-tracking branch has yet,
+up to 500 commits back. The floor uses the whole list; the page shows the
+first 100 names and 30 commit messages.
+
+The model may rate an action above its floor, never below. It can still take
+a medium action down to low. That only moves it into the collapsed "Routine"
+list, where it stays ticked as it would have been, but it is a way for text
+the agent wrote to make an action less visible. Making the rules' own rating
+the floor for everything would close it, at the cost of the model never
+being able to call anything routine.
+
+Without a model, the rules rate a write to this machine low, any other write
+or push medium, and anything with a floor high.
+
+## Deciding and applying
+
+The six new event types are the ones the plan lists. Whether the session is
+running, reviewing, waiting for a decision, applying or finished is worked
+out from them, not stored.
+
+A decision is accepted only once the agent has exited and every action has
+been described, only as JSON, and only with the page's own origin. Pressing
+Ctrl+C in the terminal counts as "discard everything".
+
+When the agent exits, the proxies and the stand-in socket are stopped before
+anything is reviewed, so the list the user decides on can't grow.
+
+Applying stops at the first failure. Actions approved after it are marked
+"not applied". `rehearse` exits with status 1 when an approved action failed
+and the agent itself had exited 0.
+
+Before a held push is sent, every local branch it would push is compared
+with the commit recorded when it was held.
+
+## The decision screen
+
+The tick box is a `button` with the checkbox role, and the collapsed lists
+open with buttons too. `input`, `label`, `details` and `summary` would be
+the natural elements, but they are outside the tags confirmed for the native
+renderer.
+
+The exact command or request is always visible next to the explanation, not
+inside the expandable detail. The detail holds the rest: destination,
+folder, files, commit messages and identifiers.
+
+Colours reuse the existing palette. High risk takes the flag colours and
+medium the "yours" colours. No new tokens were added, since design direction
+is still to come.
+
+## Claude Code's auto mode
+
+Tested with Claude Code 2.1.325 pushing to a local bare repository, run
+non-interactively (`claude -p`).
+
+With `--permission-mode auto`, Claude's own checker allowed `git push origin
+main`, the stand-in held it, and Claude reported the push as done. With auto
+mode off and the command pre-allowed, the same.
+
+With no permission flags, `claude -p` did not run the push at all ("the
+command needs your approval"), so nothing reached the stand-in. Rehearsal
+can only hold what the agent actually tries.
+
+Not tested: an interactive session, a push to a real remote, or a force
+push, any of which the checker may treat differently.
