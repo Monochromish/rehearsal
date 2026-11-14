@@ -56,6 +56,10 @@ type Ledger struct {
 	Commits *events.CommitsCreated `json:"commits"`
 	// what happened to the project's files; nil until the agent has exited
 	Changes *events.ChangesCaptured `json:"changes"`
+	// what the local model said about parts of those changes, and the
+	// entries that mark it starting and finishing
+	ChangeNotes    []events.ChangeReviewed `json:"change_notes,omitempty"`
+	ChangesReading []events.ChangesReading `json:"changes_reading,omitempty"`
 	// whether the event log's chain of hashes recomputes. Set by FromLog.
 	Record Record `json:"record"`
 	// how the agent was confined; nil when it ran without a sandbox
@@ -314,6 +318,18 @@ func Build(evs []events.Event) (Ledger, error) {
 				return l, err
 			}
 			l.Changes = &d
+		case events.TypeChangeReviewed:
+			var d events.ChangeReviewed
+			if err := decode(ev, &d); err != nil {
+				return l, err
+			}
+			l.ChangeNotes = append(l.ChangeNotes, d)
+		case events.TypeChangesReading:
+			var d events.ChangesReading
+			if err := decode(ev, &d); err != nil {
+				return l, err
+			}
+			l.ChangesReading = append(l.ChangesReading, d)
 		case events.TypeModelUsage:
 			var d events.ModelUsage
 			if err := decode(ev, &d); err != nil {

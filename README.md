@@ -650,6 +650,30 @@ If the model can't be reached, answers too slowly, or twice returns something
 unusable, the same rules write the explanation instead and the page says so.
 Rehearsal works fully without a model.
 
+### What it says about the changes
+
+When the agent exits, the same model reads the parts of the session's
+changes that the rules put under "read" and "skim", those most in need of
+reading first. For each part it writes one sentence on what the change does
+to how the program behaves, and it may say that a part under "skim" should
+be read.
+
+That is all it can do. It cannot lower a part, hide one, or reorder what the
+rules ranked. The diff is handed to it as data, with anything that looks
+like a credential masked. A comment in a diff that tells it to call the
+change harmless is one of the things it is tested against: a stand-in model
+that does what the comment says moves nothing down, because the code that
+applies its answer has no way to. The real model was asked once, with
+`qwen3.8:27b`, about a change that posts a token under such a comment. It
+described the post and said the part should be read. One run is not a
+measurement.
+
+It reads at most 40 parts and stops after 90 seconds, whichever comes
+first. The log says how many parts it left and why, and those keep the
+rules' reason. `rehearse` waits for it before closing the record, so a
+session can take up to 90 seconds longer to exit. With no model, the
+changes are sorted by the rules alone.
+
 ### Reaching Ollama from WSL
 
 Inside WSL2, `localhost` is the Linux side, so Ollama on Windows isn't there.

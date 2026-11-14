@@ -348,6 +348,9 @@ func (l Ledger) Markdown() string {
 			if c.Truncated {
 				b.WriteString("It was too long to keep whole, and is cut short.\n")
 			}
+			if n := len(l.ChangeNotes); n > 0 {
+				fmt.Fprintf(&b, "The local model wrote a sentence on what %s of the changes do. They are shown beside each part in the window. They are that model's words, not something that was observed.\n", plural(n, "part"))
+			}
 		}
 	}
 

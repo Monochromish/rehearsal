@@ -35,6 +35,8 @@ export type EventType =
   | 'report_notes'
   | 'commits_created'
   | 'changes_captured'
+  | 'change_reviewed'
+  | 'changes_reading'
   | 'sandbox_started'
   | 'sensitive_write'
   | 'policy_allowed'
@@ -73,6 +75,8 @@ const eventTypes: readonly EventType[] = [
   'report_notes',
   'commits_created',
   'changes_captured',
+  'change_reviewed',
+  'changes_reading',
   'sandbox_started',
   'sensitive_write',
   'policy_allowed',

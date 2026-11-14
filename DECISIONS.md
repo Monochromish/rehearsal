@@ -1022,3 +1022,39 @@ watched value now records a sighting with "commit message" as the place,
 and a value that is not a planted one is replaced by its name in the
 stored subject. Before this, a secret in a subject that matched no known
 credential format was stored as it was.
+
+## The reviewer reads the changes
+
+The rules sort a session's changes without understanding them. The local
+model can say what a change does, so it is asked, about the parts the rules
+ranked "read" and "skim", for one sentence each.
+
+**It can raise and cannot lower.** The model's answer is a sentence and
+one of two words, "read" or "skim". The log entry that records it has a
+field for "raised" and no field for the opposite, and the code sets
+"raised" only for a part the rules had under "skim". So a part the rules
+say to read stays there whatever the model answers, and a mechanical part
+is never asked about. A model that is fooled can make a person read
+something they did not need to. It cannot make them miss something.
+
+**The diff is data.** It is wrapped in one block, text in it that would
+close the block is rewritten, credentials are masked, and the instructions
+say that text in the diff telling the model what to conclude is part of
+what it is describing. The same rule as for held actions applies to
+purposes: it says what the code does and never why.
+
+**A budget, and an honest account of it.** 40 parts and 90 seconds, the
+parts most in need of reading first. Two entries mark the reading starting
+and ending, and the second says how many parts were left and why: past the
+first 40, out of time, or the model stopped answering. A front end can
+show which parts are still to come from the first entry alone.
+
+**Sentences are in the log.** They are entries like any other, so they
+are covered by the chain and the signature, a past session shows the
+sentences it was given, and the investigation can cite them. The cost is
+that the record cannot be closed until the reading ends, so `rehearse`
+waits for it, at most the 90 seconds.
+
+**Two failures in a row end it.** One unusable answer costs one sentence.
+After a second in a row the model is taken to have gone, and the session
+is not held up waiting for 38 more timeouts.

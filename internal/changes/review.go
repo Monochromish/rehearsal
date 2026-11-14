@@ -23,8 +23,12 @@ type Review struct {
 	// why the changes could not be recorded, when they could not
 	Problem string `json:"problem,omitempty"`
 	// the diff was too long to keep whole
-	Truncated bool   `json:"truncated,omitempty"`
-	Parts     []Part `json:"parts"`
+	Truncated bool `json:"truncated,omitempty"`
+	// the local model is reading the parts now
+	Reading bool `json:"reading,omitempty"`
+	// what it left unread, and why, once it has finished
+	ReadingNote string `json:"reading_note,omitempty"`
+	Parts       []Part `json:"parts"`
 }
 
 // Load reads a session's changes from its folder. captured is what the

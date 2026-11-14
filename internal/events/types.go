@@ -33,6 +33,8 @@ const (
 
 	TypeCommitsCreated  Type = "commits_created"
 	TypeChangesCaptured Type = "changes_captured"
+	TypeChangeReviewed  Type = "change_reviewed"
+	TypeChangesReading  Type = "changes_reading"
 
 	TypeSandboxStarted Type = "sandbox_started"
 	TypeSensitiveWrite Type = "sensitive_write"
@@ -172,6 +174,30 @@ type ChangesCaptured struct {
 	Truncated bool `json:"truncated,omitempty"`
 	// why the changes could not be captured, when they could not
 	Problem string `json:"problem,omitempty"`
+}
+
+// ChangeReviewed is what the local model said about one part of the
+// session's changes. The part is named by its place in the session's diff.
+type ChangeReviewed struct {
+	PartID string `json:"part_id"`
+	// one sentence on what the change does to how the program behaves
+	Sentence string `json:"sentence"`
+	// the rules put the part under "skim" and the model said to read it.
+	// There is no way to record the opposite: the model can only raise.
+	Raised bool `json:"raised,omitempty"`
+}
+
+// ChangesReading marks the local model starting to read the session's
+// changes, and finishing.
+type ChangesReading struct {
+	// true at the start, false at the end
+	Started bool `json:"started"`
+	// at the start, how many parts it will be asked about; at the end,
+	// how many it gave a sentence for
+	Parts int `json:"parts"`
+	// at the end: parts to read or skim that got no sentence, and why
+	Left int    `json:"left,omitempty"`
+	Why  string `json:"why,omitempty"`
 }
 
 // Request never carries headers, the query string or the body.

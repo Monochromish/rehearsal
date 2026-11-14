@@ -215,7 +215,9 @@ func (s *Server) sessionReview(o opened) (changes.Review, error) {
 	if err != nil {
 		return changes.Review{}, err
 	}
-	return changes.Load(o.dir, l.Changes)
+	r, err := changes.Load(o.dir, l.Changes)
+	r.Annotate(l.ChangeNotes, l.ChangesReading)
+	return r, err
 }
 
 func (s *Server) handleSessionChanges(w http.ResponseWriter, r *http.Request) {

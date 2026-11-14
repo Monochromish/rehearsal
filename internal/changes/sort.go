@@ -54,6 +54,12 @@ type Part struct {
 	// the least attention the rules allow it, and why, in a few words
 	Level  Level  `json:"level"`
 	Reason string `json:"reason"`
+	// what the local model said the change does, when it has read it
+	Sentence string `json:"sentence,omitempty"`
+	// the rules said skim and the model said read
+	Raised bool `json:"raised,omitempty"`
+	// the model is going to read it and has not yet
+	Pending bool `json:"pending,omitempty"`
 	// the part of the diff this is, for showing
 	Text string `json:"-"`
 }

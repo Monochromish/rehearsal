@@ -422,6 +422,18 @@ func rehearse(opts options, command []string) (exitCode int, err error) {
 		_, _ = log.Append(events.TypeFirstInput, events.FirstInput{})
 	})
 	cleanup("record what changed in the project", func() error { return changed.finish(log, box) })
+	// The local model reads the changes while the user decides. It has a
+	// budget of its own, and the record is not closed until it is done.
+	reading := make(chan struct{})
+	go func() {
+		defer close(reading)
+		if reviewer.model == nil {
+			return
+		}
+		if rerr := changed.read(context.Background(), log, reviewer.model, time.Now); rerr != nil {
+			fmt.Fprintf(os.Stderr, "rehearse: the local model could not read the changes: %v\n", rerr)
+		}
+	}()
 
 	if files != nil {
 		// while the stand-ins can still be told about, so the list the user
@@ -467,6 +479,12 @@ func rehearse(opts options, command []string) (exitCode int, err error) {
 	// until they are applied, and only then are they in the repository.
 	if _, aerr := log.Append(events.TypeCommitsCreated, commitsSince(workDir, refsBefore, inRepo)); aerr != nil {
 		err = errors.Join(err, aerr)
+	}
+	select {
+	case <-reading:
+	case <-time.After(time.Second):
+		fmt.Fprintf(os.Stderr, "rehearse: the local model is still reading the changes. This takes at most %d seconds.\n", int(readingBudget.Seconds()))
+		<-reading
 	}
 	if reviewer.model != nil {
 		cleanup("add the model's notes to the report", func() error {
