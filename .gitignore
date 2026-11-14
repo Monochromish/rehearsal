@@ -23,3 +23,6 @@ demo/.run/
 node_modules/
 /internal/webui/dist/*
 !/internal/webui/dist/.gitkeep
+
+# The native app window is built separately and is not part of this repository
+desktop/

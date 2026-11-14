@@ -358,6 +358,12 @@ func rehearse(opts options, command []string) (exitCode int, err error) {
 	if err != nil {
 		return 1, err
 	}
+	web.ServeSessions(filepath.Dir(sessionDir), filepath.Base(sessionDir))
+	described := server.Info{Version: version}
+	if reviewer.model != nil {
+		described.Reviewer = opts.reviewerModel
+	}
+	web.Describe(described)
 	// Runs before the deferred steps above, so the page server has drained
 	// by the time the event log closes.
 	defer cleanup("stop the page server", func() error {
@@ -807,9 +813,47 @@ func stateDir() (string, error) {
 	return filepath.Join(home, ".local", "state", "rehearsal"), nil
 }
 
-// openWindow shows the page as a standalone Edge window when running
-// inside WSL. Anywhere else it does nothing: the address is already printed.
+// envApp names the program that shows a session in a window of its own.
+// When it is set and the program is there, the session opens in it.
+// Otherwise it opens as a page in a browser window, as it always has.
+const envApp = "REHEARSAL_APP"
+
+// openApp starts the app window's program and tells it where the session
+// is served. It does not wait for it: the window is the user's to close.
+//
+// The address is given as an argument. The program may be one for another
+// system started from this one (a Windows program from inside WSL), which
+// is handed neither this process's environment nor a working folder it
+// can use, so it is started in its own folder and told everything it
+// needs on its command line.
+func openApp(app, url string) error {
+	info, err := os.Stat(app)
+	if err != nil {
+		return err
+	}
+	if info.IsDir() || info.Mode()&0o111 == 0 {
+		return fmt.Errorf("%s is not a program", app)
+	}
+	cmd := exec.Command(app, "-url", url)
+	cmd.Dir = filepath.Dir(app)
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	go func() { _ = cmd.Wait() }() // only so the finished process is cleared away
+	return nil
+}
+
+// openWindow shows the session: in the app window when one is named, and
+// otherwise as a standalone Edge window when running inside WSL. Anywhere
+// else it does nothing: the address is already printed.
 func openWindow(url string) error {
+	if app := os.Getenv(envApp); app != "" {
+		err := openApp(app, url)
+		if err == nil {
+			return nil
+		}
+		fmt.Fprintf(os.Stderr, "rehearse: could not open the app window named by %s (%v). Opening the page in a browser instead.\n", envApp, err)
+	}
 	version, err := os.ReadFile("/proc/version")
 	if errors.Is(err, os.ErrNotExist) {
 		return nil // not Linux, so not WSL

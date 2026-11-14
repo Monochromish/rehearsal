@@ -914,3 +914,111 @@ a stronger one, so both are read, with the reason "changes an assertion".
 
 Each part carries its reason in a few words. A person who disagrees with a
 level can see what it rests on.
+
+## Every session, read-only, and a window of its own
+
+The page server used to answer for one session, the live one. It now also
+answers for every session recorded on this computer, read-only:
+
+- `GET /api/sessions` lists them, newest first, with the folder each ran in.
+- `GET /api/sessions/{name}/ledger`, `/changes`, `/change?id=`, `/entries`
+  and `/record` are that session's ledger, its sorted changes, the text of
+  one change, its log entry by entry exactly as hashed, and whether its
+  record verifies (the chain, and the signature against this computer's
+  key).
+- `GET /api/info` gives the version and the name of the local model.
+
+A past session is opened for reading when asked about and closed again. Its
+name must be a plain folder name, so nothing outside the sessions folder
+can be reached. Nothing about a past session can be changed through the
+API: the only request that changes anything is still the decision on the
+live session's held actions.
+
+These exist so that more than one front end can show a session. The page
+built from `web/` is the one anyone can build from this repository.
+`REHEARSAL_APP` may name another program to show the session in a window of
+its own. When it is set and the program is there, `rehearse` starts it as
+`PROGRAM -url ADDRESS`, in the program's own folder, with the address the
+session is served at. The address is an argument and not an environment
+variable because the program may be built for another system and started
+across the boundary (a Windows program from inside WSL), where neither the
+environment nor the working folder carries over. That program talks to
+`rehearse` only through this API, so it needs nothing else. When it is set and the
+program can't be started, `rehearse` says so and opens the page in a
+browser as before. Such a program is built separately and is not part of
+this repository, which is why `desktop/` is in `.gitignore`.
+
+## Investigating a record
+
+`rehearse investigate` answers "what happened here, and why should I
+believe you" for someone who was not there. The second half of that
+question decided most of the design.
+
+**Rules find, a model only retells.** Extraction, linking and findings are
+plain code over the log's entries. They give the same bytes for the same
+records, and a test runs them twice and compares. The local model is
+handed the rules' statements after the fact and may add a few sentences.
+It cannot add a finding, remove one or change one, because it is never
+asked to.
+
+**A model's sentence needs a citation that code can check.** The model is
+told to end each sentence with entry citations. Code then keeps a sentence
+only if it has at least one citation and every citation is an entry the
+model was given. A fluent sentence with an invented entry number is
+removed, and so is one with none. This is also the defence against text in
+the record that tells the model what to conclude: an obedient conclusion
+has nothing to cite. The report counts what was removed, so a model that
+wanders is visible.
+
+**Three labels, never mixed.** "Observed" is one entry. "Derived" is a
+named rule over several, with the rule's wording listed. "Written by a
+model" is prose. A reader who trusts nothing but the log can read the
+first kind only; the raw lines are printed under every finding with the
+supporting part named.
+
+**Per-entry verification, as well as per-record.** `rehearse verify` stops
+at the first bad entry. An investigator needs more: which findings does
+the damage touch? So intake recomputes every entry and marks each one that
+does not match its hash or does not follow the one before. When a link is
+broken, both sides of it are marked, since either could be the altered
+one. A finding says so when it rests on a marked entry. Every finding from
+a record that fails as a whole says that too, in a separate line, so the
+two are not confused.
+
+**The capture side had to say more.** A finding can only show what the
+log holds, so three things were added to what is recorded: for each newly
+named host in content read from outside, a short excerpt around its
+address and whether that text sat in an HTML comment; for each watched
+value found in a held request, where it was and in what form; and for an
+encoded value, the encoded text and a hash.
+
+**Proof without the secret.** The log has always kept a salted hash for
+each `.env` secret and never the value. When a secret is found encoded,
+the recorder now decodes the text, takes the part that is the secret, and
+hashes it with the same salt. It is hashed from the decoded bytes and not
+copied from the identifier, so the two hashes being equal is a check and
+not a restatement. The encoded text of a real secret is stored cut to its
+first eight characters with its length: the whole of it would be the
+secret to anyone who can run `base64 -d`. A planted value's is kept whole,
+and for those the rules decode it again at investigation time and compare
+it with the value the first entry lists.
+
+**Excerpts keep no paths.** Every address inside a stored excerpt is cut
+to its scheme and host, as everywhere else in the log, so an excerpt
+cannot carry a token in a query string into the record.
+
+**Two findings beyond the list.** "A watched value sent outside" and "an
+action the rules rate as high risk" were added so that every attack in the
+scenario set has a finding to be measured against. The second applies the
+same rating rules that decide what is held, to the held action's entry,
+and says so as a derived statement.
+
+**Limits are part of the report.** "What the record cannot show" is
+printed every time. An absence of findings means the rules found nothing
+in what was recorded, and the section says what was not recorded.
+
+**A commit message is searched too.** A push whose commit subject holds a
+watched value now records a sighting with "commit message" as the place,
+and a value that is not a planted one is replaced by its name in the
+stored subject. Before this, a secret in a subject that matched no known
+credential format was stored as it was.

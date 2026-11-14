@@ -38,6 +38,10 @@ type Server struct {
 	mu      sync.Mutex
 	diffs   func(actionID string) (string, error)
 	changes func() (changes.Review, error)
+	info    Info
+	// where every session's folder is, and the name of the live one's
+	sessionsDir, current string
+	described            map[string]SessionInfo
 }
 
 // ShowChanges sets where the session's sorted changes come from.
@@ -151,6 +155,13 @@ func Start(log *events.Log, ui fs.FS, port int) (*Server, error) {
 	mux.HandleFunc("GET /api/diff", s.handleDiff)
 	mux.HandleFunc("GET /api/changes", s.handleChanges)
 	mux.HandleFunc("GET /api/change", s.handleChange)
+	mux.HandleFunc("GET /api/info", s.handleInfo)
+	mux.HandleFunc("GET /api/sessions", s.handleSessions)
+	mux.HandleFunc("GET /api/sessions/{name}/ledger", s.handleSessionLedger)
+	mux.HandleFunc("GET /api/sessions/{name}/changes", s.handleSessionChanges)
+	mux.HandleFunc("GET /api/sessions/{name}/change", s.handleSessionChange)
+	mux.HandleFunc("GET /api/sessions/{name}/entries", s.handleSessionEntries)
+	mux.HandleFunc("GET /api/sessions/{name}/record", s.handleSessionRecord)
 	if _, err := fs.Stat(ui, "index.html"); err == nil {
 		mux.Handle("GET /", http.FileServerFS(ui))
 	} else {
