@@ -58,13 +58,14 @@ type Masker struct {
 	Keep []string
 }
 
-// HoldCommand records a command a stand-in is holding.
-func (h *Holder) HoldCommand(c Command, m Masker) (string, error) {
+// HoldCommand records a command a stand-in is holding, unless the policy
+// lets it through or refuses it.
+func (h *Holder) HoldCommand(c Command, m Masker) (Outcome, error) {
 	if want, ok := programs[c.Kind]; !ok || c.Program != want {
-		return "", fmt.Errorf("a stand-in reported %q as a %q action, which is not one it can hold", c.Program, c.Kind)
+		return Outcome{}, fmt.Errorf("a stand-in reported %q as a %q action, which is not one it can hold", c.Program, c.Kind)
 	}
 	if c.WorkDir == "" {
-		return "", errors.New("a stand-in reported a command with no working directory")
+		return Outcome{}, errors.New("a stand-in reported a command with no working directory")
 	}
 	carried := strings.Join(slices.Concat(c.Args, c.Files, c.Commits), "\n") + "\n" + c.Destination + "\n" + string(c.Stdin)
 	files, filesOmitted := cut(c.Files, maxFilesShown)
@@ -94,9 +95,9 @@ func (h *Holder) HoldCommand(c Command, m Masker) (string, error) {
 		Minor:           c.Minor,
 		NeedsRealAnswer: c.NeedsRealAnswer,
 	}
-	return h.Hold(display, Payload{
+	return h.Consider(display, Payload{
 		Program: c.Program, Args: c.Args, WorkDir: c.WorkDir, Stdin: c.Stdin, GitGlobals: c.GitGlobals,
-	})
+	}, true)
 }
 
 const (
@@ -151,12 +152,13 @@ func Listen(h *Holder, m Masker) (*Socket, error) {
 			http.Error(w, "unreadable report: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		id, err := h.HoldCommand(c, m)
+		out, err := h.HoldCommand(c, m)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		_, _ = io.WriteString(w, id) // the stand-in treats a short reply as a failure
+		// the stand-in treats a short reply as a failure
+		_ = json.NewEncoder(w).Encode(out)
 	})
 	s.srv = &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 	go func() { s.served <- s.srv.Serve(l) }()
@@ -174,8 +176,20 @@ func (s *Socket) Close() error {
 }
 
 // Report is the stand-in's side: it tells the rehearse process at
-// socketPath about a command and returns the new action's ID.
-func Report(ctx context.Context, socketPath string, c Command) (string, error) {
+// socketPath about a command and returns what became of it.
+func Report(ctx context.Context, socketPath string, c Command) (Outcome, error) {
+	reply, err := report(ctx, socketPath, c)
+	if err != nil {
+		return Outcome{}, err
+	}
+	var out Outcome
+	if err := json.Unmarshal([]byte(reply), &out); err != nil || out.Action == "" {
+		return Outcome{}, errors.New("rehearse did not confirm the hold")
+	}
+	return out, nil
+}
+
+func report(ctx context.Context, socketPath string, c Command) (string, error) {
 	body, err := json.Marshal(c)
 	if err != nil {
 		return "", err

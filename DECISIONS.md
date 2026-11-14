@@ -563,6 +563,59 @@ Reads cannot be observed with this design. Nothing claims they can.
 
 Per-turn snapshots, `rehearse undo` and `rehearse turns` are not built.
 
+## Policy
+
+The policy is applied in one place, where an action is about to be held,
+which the proxy and the stand-ins already share. So a rule means the same
+for a request and for a command.
+
+Order of strictness is allow, hold, refuse. The built-in rules come first:
+an action they rate high is held whatever any file says. Then the
+organisation's first matching rule, then the project's, which may make
+things stricter than the organisation's result and never looser. A rule
+that would loosen is dropped for that action and reported once per session.
+
+Whether a project rule loosens an organisation rule is decided per action,
+when both match it. That is exact. `rehearse policy check` has no action to
+hand, so it compares patterns, and reports only what it can be sure of.
+
+A rule with a `risk` and no `action` holds. A rating only means something
+for an action that is held.
+
+A refused action is recorded as held and refused in the same moment, with
+the rule that refused it, so it is in the report and the record like any
+other refusal. Nothing is kept to replay. The decision API will not accept
+an approval for it.
+
+An allowed action is not a held action. It is noted (`policy_allowed`) with
+the rule, so the report can say how many went through and why.
+
+The policy's hash covers the bytes of both files, with their lengths, so
+the same rules written differently have different hashes. It says "these
+files", not "these rules".
+
+The files are read before the session's first event and never again. An
+edit to the project's file during the session is found at the end by
+comparing the file with what was read, and reported as a sensitive write.
+In a sandbox the edit lands in the layer, and `.rehearsal/` is on the
+sensitive list.
+
+YAML needs a parser, and `gopkg.in/yaml.v3` is the one dependency added
+for it. Unknown fields are an error, so a misspelt key cannot quietly turn
+a rule into one that matches everything.
+
+A learned rule is offered on the decision screen, not afterwards, because
+the page stops being served when the session ends. It is written only
+after the decision is carried out, as one line in flow style, which is
+valid as an entry of the `rules` list whether the rest of the file is in
+flow or block style. The file is parsed again with the line added before
+anything is written. If the result isn't the same rules plus that one, the
+file is left alone and the line is printed for adding by hand.
+
+An offer needs three earlier sessions in which the action was allowed and
+then performed. The session in which the offer is made doesn't count
+towards its own offer.
+
 ## Deciding and applying
 
 The six new event types are the ones the plan lists. Whether the session is

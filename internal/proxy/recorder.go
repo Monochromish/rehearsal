@@ -154,11 +154,17 @@ func (r *Recorder) Request(f *mitm.Flow) {
 		body = f.Request.Body // unknown compression: search the raw bytes
 	}
 	seen := r.scan(f, body)
-	if why, held := r.holds(f.Request, seen); held {
-		r.hold(f, seen, why)
-		return
+	provider := r.providers[strings.ToLower(f.Request.URL.Hostname())]
+	why, held := r.holds(f.Request, seen)
+	// A policy may hold or refuse what the built-in rules let through, and
+	// let through some of what they hold. It has no say over ordinary
+	// traffic to the model provider.
+	if held || (r.holding != nil && !provider && r.holding.Holder.HasRules()) {
+		if r.hold(f, seen, why, held) {
+			return
+		}
 	}
-	if r.providers[strings.ToLower(f.Request.URL.Hostname())] {
+	if provider {
 		r.readConversation(f.Request.URL.Path, body)
 	}
 	if err := r.record(f, seen, true, body); err != nil {
@@ -393,12 +399,14 @@ func (r *Recorder) unfamiliar(req *mitm.Request) bool {
 	return first != sum
 }
 
-// hold keeps the request back and gives the agent a stand-in answer. If
-// the request cannot be kept it is refused, never sent.
-func (r *Recorder) hold(f *mitm.Flow, seen []events.IdentifierSeen, why held) {
+// hold puts the request to the session's policy. builtIn says whether the
+// built-in rules hold it. It reports whether the request was answered
+// here: kept back with a stand-in answer, or refused. If a request that
+// should be kept cannot be, it is refused, never sent.
+func (r *Recorder) hold(f *mitm.Flow, seen []events.IdentifierSeen, why held, builtIn bool) (answered bool) {
 	if err := r.Err(); err != nil {
 		refuse(f, err)
-		return
+		return true
 	}
 	req := f.Request
 	answer := handlers.Answer{Status: http.StatusOK}
@@ -415,7 +423,7 @@ func (r *Recorder) hold(f *mitm.Flow, seen []events.IdentifierSeen, why held) {
 		}
 	}
 	host := displayHost(req.URL)
-	_, err := r.holding.Holder.Hold(events.ActionHeld{
+	out, err := r.holding.Holder.Consider(events.ActionHeld{
 		Kind:            events.ActionHTTP,
 		RequestID:       f.Id.String(),
 		Method:          req.Method,
@@ -437,16 +445,28 @@ func (r *Recorder) hold(f *mitm.Flow, seen []events.IdentifierSeen, why held) {
 		Header: req.Header.Clone(),
 		Body:   req.Body,
 		Seen:   seen,
-	})
+	}, builtIn)
 	if err != nil {
 		refuse(f, err)
-		return
+		return true
 	}
-	header := http.Header{}
-	if answer.ContentType != "" {
-		header.Set("Content-Type", answer.ContentType)
+	switch out.Action {
+	case hold.Kept:
+		header := http.Header{}
+		if answer.ContentType != "" {
+			header.Set("Content-Type", answer.ContentType)
+		}
+		f.Response = &mitm.Response{StatusCode: answer.Status, Header: header, Body: answer.Body}
+		return true
+	case hold.Refused:
+		f.Response = &mitm.Response{
+			StatusCode: http.StatusForbidden,
+			Header:     http.Header{"Content-Type": {"text/plain; charset=utf-8"}},
+			Body:       []byte("Rehearsal: this request is refused by the policy for this project and was not sent. Rule: " + out.Rule + "\n"),
+		}
+		return true
 	}
-	f.Response = &mitm.Response{StatusCode: answer.Status, Header: header, Body: answer.Body}
+	return false // let through
 }
 
 // changesAccess reports whether a write to this path changes who can see

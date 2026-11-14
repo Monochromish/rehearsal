@@ -55,6 +55,24 @@ type Ledger struct {
 	// writes to paths that decide what runs on this machine, as they were
 	// noticed
 	Sensitive []events.SensitiveWrite `json:"sensitive"`
+	Policy    Policy                  `json:"policy"`
+}
+
+// Policy is what the session's policy files did.
+type Policy struct {
+	// identifies the files in force; empty when there were none
+	Hash string `json:"hash"`
+	// actions a rule let through that would otherwise have been held
+	Allowed []events.PolicyAllowed `json:"allowed"`
+	// rules that were not allowed to apply
+	Ignored []events.PolicyIgnored `json:"ignored"`
+	// rules offered to the user, and whether each was added
+	Offers []Offer `json:"offers"`
+}
+
+type Offer struct {
+	events.RuleOffered
+	Added bool `json:"added"`
 }
 
 // Record is the state of the log the ledger was built from.
@@ -155,6 +173,7 @@ func Build(evs []events.Event) (Ledger, error) {
 	l := Ledger{
 		Phase: PhaseRunning, Watching: []events.Identifier{}, Servers: []Server{}, Actions: []Action{},
 		Outside: []OutsideSource{}, Sensitive: []events.SensitiveWrite{},
+		Policy: Policy{Allowed: []events.PolicyAllowed{}, Ignored: []events.PolicyIgnored{}, Offers: []Offer{}},
 	}
 	byID := map[string]events.Identifier{}
 	servers := map[string]*Server{}
@@ -177,7 +196,7 @@ func Build(evs []events.Event) (Ledger, error) {
 				return l, err
 			}
 			l.Command, l.WorkDir, l.StartedAt, l.Watching, l.Holding = d.Command, d.WorkDir, ev.Time, d.Identifiers, d.Holding
-			l.ToolVersion = d.ToolVersion
+			l.ToolVersion, l.Policy.Hash = d.ToolVersion, d.PolicyHash
 			report.watched = d.InputWatched
 			for _, id := range d.Identifiers {
 				byID[id.ID] = id
@@ -201,6 +220,34 @@ func Build(evs []events.Event) (Ledger, error) {
 			report.request(d)
 		case events.TypeFirstInput:
 			report.inputSeen = true
+		case events.TypePolicyAllowed:
+			var d events.PolicyAllowed
+			if err := decode(ev, &d); err != nil {
+				return l, err
+			}
+			l.Policy.Allowed = append(l.Policy.Allowed, d)
+		case events.TypePolicyIgnored:
+			var d events.PolicyIgnored
+			if err := decode(ev, &d); err != nil {
+				return l, err
+			}
+			l.Policy.Ignored = append(l.Policy.Ignored, d)
+		case events.TypeRuleOffered:
+			var d events.RuleOffered
+			if err := decode(ev, &d); err != nil {
+				return l, err
+			}
+			l.Policy.Offers = append(l.Policy.Offers, Offer{RuleOffered: d})
+		case events.TypeRuleAdded:
+			var d events.RuleAdded
+			if err := decode(ev, &d); err != nil {
+				return l, err
+			}
+			for i := range l.Policy.Offers {
+				if l.Policy.Offers[i].ID == d.ID {
+					l.Policy.Offers[i].Added = true
+				}
+			}
 		case events.TypeSandboxStarted:
 			var d events.SandboxStarted
 			if err := decode(ev, &d); err != nil {
@@ -312,7 +359,7 @@ func Build(evs []events.Event) (Ledger, error) {
 			}
 			a.Review = &d
 		case events.TypeActionApproved, events.TypeActionRefused:
-			var d events.ActionApproved // both carry only the action's ID
+			var d events.ActionRefused // an approval carries only the action's ID
 			if err := decode(ev, &d); err != nil {
 				return l, err
 			}
@@ -323,6 +370,9 @@ func Build(evs []events.Event) (Ledger, error) {
 			a.Decision = Approved
 			if ev.Type == events.TypeActionRefused {
 				a.Decision = Refused
+				if d.Policy != "" {
+					a.Detail = "Refused by the policy for this project. Rule: " + d.Policy
+				}
 			}
 		case events.TypeActionApplied:
 			var d events.ActionApplied

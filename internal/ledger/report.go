@@ -403,6 +403,32 @@ func (l Ledger) Markdown() string {
 		b.WriteString(strings.TrimPrefix(l.actionsText(), "\nHELD ACTIONS\n"))
 	}
 
+	if p := l.Policy; p.Hash != "" || len(p.Ignored) > 0 {
+		b.WriteString("\n## Policy\n\n")
+		if p.Hash == "" {
+			b.WriteString("No policy file was in force.\n")
+		} else {
+			fmt.Fprintf(&b, "Policy in force: %s\n", p.Hash)
+		}
+		if len(p.Allowed) > 0 {
+			fmt.Fprintf(&b, "\n%s let through by a policy rule and not held:\n\n", plural(len(p.Allowed), "action was", "actions were"))
+			for _, a := range p.Allowed {
+				fmt.Fprintf(&b, "- %s to %s (rule: `%s`)\n", a.Kind, a.Destination, a.Rule)
+			}
+		}
+		if len(p.Ignored) > 0 {
+			b.WriteString("\nPolicy rules that were ignored:\n\n")
+			for _, ig := range p.Ignored {
+				fmt.Fprintf(&b, "- `%s` (%s policy): %s\n", ig.Rule, ig.Source, ig.Why)
+			}
+		}
+		for _, o := range p.Offers {
+			if o.Added {
+				fmt.Fprintf(&b, "\nA rule was added to the project's policy file because you accepted it: `%s`\n", o.Line)
+			}
+		}
+	}
+
 	// nothing to say when the ledger was not built from a log
 	if r := l.Record; r.Verified {
 		fmt.Fprintf(&b, "\n## Record\n\nThe log of this session had %d entries when this report was written, each carrying the hash of the one before, and the chain verified. `rehearse verify` checks it again, with its signature.\n", r.Entries)

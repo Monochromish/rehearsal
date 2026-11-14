@@ -67,6 +67,8 @@ type Decision struct {
 	Discard bool
 	// IDs of the actions to perform; every other held action is refused
 	Approve []string
+	// IDs of the offered policy rules the user accepted
+	Rules []string
 }
 
 // Decisions delivers the user's decision. There is at most one.
@@ -195,6 +197,7 @@ func (s *Server) handleApply(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Decision string   `json:"decision"`
 		Approve  []string `json:"approve"`
+		Rules    []string `json:"rules"`
 	}
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10))
 	dec.DisallowUnknownFields()
@@ -221,14 +224,22 @@ func (s *Server) handleApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for i, id := range body.Approve {
-		known := slices.ContainsFunc(l.Actions, func(a ledger.Action) bool { return a.ID == id })
-		if !known || slices.Contains(body.Approve[:i], id) {
-			http.Error(w, fmt.Sprintf("%q is not a held action, or is listed twice", id), http.StatusBadRequest)
+		// one a policy has already refused is no longer the user's to allow
+		open := slices.ContainsFunc(l.Actions, func(a ledger.Action) bool { return a.ID == id && a.Decision == ledger.Undecided })
+		if !open || slices.Contains(body.Approve[:i], id) {
+			http.Error(w, fmt.Sprintf("%q is not a held action waiting for a decision, or is listed twice", id), http.StatusBadRequest)
+			return
+		}
+	}
+	for i, id := range body.Rules {
+		offered := slices.ContainsFunc(l.Policy.Offers, func(o ledger.Offer) bool { return o.ID == id })
+		if !offered || slices.Contains(body.Rules[:i], id) {
+			http.Error(w, fmt.Sprintf("%q is not a rule that was offered, or is listed twice", id), http.StatusBadRequest)
 			return
 		}
 	}
 	select {
-	case s.decisions <- Decision{Discard: body.Decision == "discard", Approve: body.Approve}:
+	case s.decisions <- Decision{Discard: body.Decision == "discard", Approve: body.Approve, Rules: body.Rules}:
 		w.WriteHeader(http.StatusAccepted)
 	default:
 		http.Error(w, "a decision has already been made", http.StatusConflict)

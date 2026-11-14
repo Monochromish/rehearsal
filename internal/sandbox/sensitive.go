@@ -31,6 +31,10 @@ var rules = []rule{
 		},
 	},
 	{
+		"It changes Rehearsal's own rules for this project. Rules are read before the agent starts, so the change does nothing in this session.",
+		[]string{".rehearsal/"},
+	},
+	{
 		"It changes a shell start-up file, which runs every time a terminal opens.",
 		[]string{".bashrc", ".bash_profile", ".bash_login", ".profile", ".zshrc", ".zprofile", ".zshenv", ".zlogin", ".config/fish/config.fish"},
 	},

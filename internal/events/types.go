@@ -35,6 +35,11 @@ const (
 
 	TypeSandboxStarted Type = "sandbox_started"
 	TypeSensitiveWrite Type = "sensitive_write"
+
+	TypePolicyAllowed Type = "policy_allowed"
+	TypePolicyIgnored Type = "policy_ignored"
+	TypeRuleOffered   Type = "rule_offered"
+	TypeRuleAdded     Type = "rule_added"
 )
 
 type Event struct {
@@ -107,6 +112,8 @@ type SessionStarted struct {
 	InputWatched bool `json:"input_watched"`
 	// the version of rehearse recording the session
 	ToolVersion string `json:"tool_version,omitempty"`
+	// identifies the policy files in force; empty when there are none
+	PolicyHash string `json:"policy_hash,omitempty"`
 }
 
 // CommitsCreated lists the commits made during the session in the working
@@ -290,6 +297,49 @@ type ActionHeld struct {
 
 	// set for a file change made in the sandbox
 	File *FileChange `json:"file,omitempty"`
+
+	// the lowest rating the session's policy allows this action, and the
+	// rule that held it; both empty when no policy rule applied
+	PolicyRisk Risk   `json:"policy_risk,omitempty"`
+	PolicyRule string `json:"policy_rule,omitempty"`
+}
+
+// PolicyAllowed records an action the built-in rules would have held that
+// a policy rule let through instead.
+type PolicyAllowed struct {
+	Kind        ActionKind `json:"kind"`
+	Destination string     `json:"destination"`
+	Subject     string     `json:"subject,omitempty"`
+	Rule        string     `json:"rule"`
+}
+
+// PolicyIgnored records a policy rule that was not allowed to apply.
+type PolicyIgnored struct {
+	Rule string `json:"rule"`
+	// project or organisation
+	Source string `json:"source"`
+	Why    string `json:"why"`
+}
+
+// RuleOffered records that the page offered to add a rule to the project's
+// policy, because the same kind of action to the same place has been
+// allowed in several sessions.
+type RuleOffered struct {
+	ID          string     `json:"id"`
+	Kind        ActionKind `json:"kind"`
+	Destination string     `json:"destination"`
+	// the rule as it would be written to the file
+	Line string `json:"line"`
+	// sessions in which it was allowed before this one
+	Times int `json:"times"`
+}
+
+// RuleAdded records that the user accepted an offered rule and it was
+// written to the project's policy file.
+type RuleAdded struct {
+	ID   string `json:"id"`
+	Line string `json:"line"`
+	Path string `json:"path"`
 }
 
 // FileChange is one change to the project waiting in the sandbox's layer:
@@ -376,6 +426,8 @@ type ActionApproved struct {
 
 type ActionRefused struct {
 	ActionID string `json:"action_id"`
+	// the policy rule that refused it, when it was not the user
+	Policy string `json:"policy,omitempty"`
 }
 
 type ActionApplied struct {

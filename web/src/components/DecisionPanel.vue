@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
-import type { Held, HeldAction, Risk } from '../api'
+import type { Held, HeldAction, PolicyState, Risk } from '../api'
 import type { Row } from '../present'
 import { decisionLabel, riskOf, rowsFor } from '../present'
 import HeldItem from './HeldItem.vue'
@@ -10,12 +10,22 @@ const props = defineProps<{
   agent: string
   // true while a decision is on its way to rehearse
   busy: boolean
+  policy: PolicyState
 }>()
 
 const emit = defineEmits<{
-  apply: [approve: string[]]
+  apply: [approve: string[], rules: string[]]
   discard: []
 }>()
+
+// offered rules the user has ticked. None starts ticked: a rule is never
+// added without being asked for.
+const acceptedRules = reactive(new Set<string>())
+
+function toggleRule(id: string): void {
+  if (!canDecide.value) return
+  if (!acceptedRules.delete(id)) acceptedRules.add(id)
+}
 
 // which actions are ticked, by ID. An action gets its starting state when
 // its description arrives: high risk starts unticked, the rest ticked.
@@ -27,7 +37,8 @@ watch(
   () => props.held.actions,
   (actions) => {
     for (const a of actions) {
-      if (a.review !== null && !ticked.has(a.id)) {
+      // one the policy has already refused is not the user's to tick
+      if (a.review !== null && a.decision === '' && !ticked.has(a.id)) {
         ticked.set(a.id, a.review.risk !== 'high')
       }
     }
@@ -68,8 +79,9 @@ const lowCount = computed(() => low.value.reduce((n, r) => n + r.actions.length,
 const decided = computed(() => props.held.phase === 'applying' || props.held.phase === 'finished')
 const canDecide = computed(() => props.held.phase === 'deciding' && !props.busy)
 
+const open = computed(() => props.held.actions.filter((a) => a.decision === '' || ticked.has(a.id)))
 const allowed = computed<HeldAction[]>(() => props.held.actions.filter((a) => ticked.get(a.id) === true))
-const label = computed(() => decisionLabel(allowed.value, props.held.actions.length - allowed.value.length))
+const label = computed(() => decisionLabel(allowed.value, open.value.length - allowed.value.length))
 
 const routineLine = computed(() => {
   const n = lowCount.value
@@ -146,8 +158,40 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
       <HeldItem v-for="row in unread" :key="row.key" :row="row" :ticked="false" :can-decide="false" @toggle="toggle" />
     </div>
 
+    <div v-if="policy.ignored.length > 0" class="group">
+      <h2 class="heading">Policy rules that were ignored</h2>
+      <div v-for="ig in policy.ignored" :key="ig.source + ig.rule" class="note">
+        <div class="rule">{{ ig.rule }}</div>
+        <div class="why">In the {{ ig.source }} policy. It was not applied: {{ ig.why }}.</div>
+      </div>
+    </div>
+
+    <div v-if="held.phase === 'deciding' && policy.offers.length > 0" class="group">
+      <h2 class="heading">Stop being asked</h2>
+      <div v-for="offer in policy.offers" :key="offer.id" class="offer" data-row>
+        <div class="tick">
+          <input
+            :id="`rule-${offer.id}`"
+            class="box"
+            type="checkbox"
+            :checked="acceptedRules.has(offer.id)"
+            :disabled="!canDecide"
+            @change="toggleRule(offer.id)"
+          />
+        </div>
+        <div class="main">
+          <label class="title" :for="`rule-${offer.id}`">Add this rule to .rehearsal/policy.yaml</label>
+          <div class="rule">{{ offer.line }}</div>
+          <div class="why">
+            You have allowed this in {{ offer.times }} earlier sessions. With the rule, it is let through without being held. Nothing is
+            written unless you tick this.
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div v-if="held.phase === 'deciding'" class="footer">
-      <button class="primary" type="button" :disabled="!canDecide" @click="emit('apply', allowed.map((a) => a.id))">
+      <button class="primary" type="button" :disabled="!canDecide" @click="emit('apply', allowed.map((a) => a.id), [...acceptedRules])">
         {{ label }}
       </button>
       <button class="plain" type="button" :disabled="!canDecide" @click="emit('discard')">Discard all</button>
@@ -216,6 +260,72 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
 .link:focus-visible {
   outline: 2px solid var(--text);
   outline-offset: 2px;
+}
+
+.note {
+  display: flex;
+  flex-direction: column;
+  padding-top: 12px;
+  padding-bottom: 12px;
+  border-top-width: 1px;
+  border-top-style: solid;
+  border-top-color: var(--hairline);
+}
+
+.offer {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  min-height: 44px;
+  padding-top: 12px;
+  padding-bottom: 12px;
+  border-top-width: 1px;
+  border-top-style: solid;
+  border-top-color: var(--hairline);
+}
+
+.tick {
+  display: flex;
+  flex-shrink: 0;
+  width: 32px;
+  padding-top: 4px;
+}
+
+.box {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: var(--text);
+}
+
+.box:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+
+.main {
+  display: flex;
+  flex-direction: column;
+  flex-grow: 1;
+  min-width: 0;
+}
+
+.title {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.rule {
+  margin-top: 4px;
+  font-family: ui-monospace, 'Cascadia Mono', 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.why {
+  margin-top: 4px;
+  font-size: 16px;
+  color: var(--secondary);
 }
 
 .footer {

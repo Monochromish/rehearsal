@@ -191,6 +191,21 @@ function scripted(phase: Phase, actions: HeldAction[], extraServers: Server[] = 
       servers: all,
       outside: extraServers.length > 0 ? [{ host: 'docs.example.org', reads: 2, hidden: 1 }] : [],
       record: { verified: true, badEntry: 0 },
+      policy:
+        current === 'deciding' && list.length === 7
+          ? {
+              hash: '5d0c1f',
+              allowed: 2,
+              ignored: [
+                {
+                  rule: '{match: {kind: "git-push"}, action: allow}',
+                  source: 'project',
+                  why: 'the built-in rules always hold an action like this, and no policy can loosen them',
+                },
+              ],
+              offers: [{ id: 'r1', line: '{match: {kind: "gh", destination: "GitHub repository ada/shop"}, action: allow}', times: 3, added: false }],
+            }
+          : { hash: '', allowed: 0, ignored: [], offers: [] },
       sandboxed: list.some((a) => a.kind === 'file'),
       sensitive: list.some((a) => a.kind === 'file') ? [{ path: '.git/hooks/pre-commit', reason: hookReason, real: false }] : [],
       report: {

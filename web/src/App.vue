@@ -168,7 +168,8 @@ onUnmounted(() => {
           :held="held"
           :agent="agent"
           :busy="sending"
-          @apply="(approve) => void send(() => applyApproved(approve))"
+          :policy="ledger.policy"
+          @apply="(approve, rules) => void send(() => applyApproved(approve, rules))"
           @discard="void send(discardAll)"
         />
 

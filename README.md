@@ -204,6 +204,82 @@ What it doesn't do:
   happened. Nothing in the session's log can, since the process that writes
   the log is the one that died.
 
+## The policy file
+
+A project can keep rules for held actions in `.rehearsal/policy.yaml`:
+
+```yaml
+version: 1
+rules:
+  # never send anything to this host
+  - {match: {destination: "paste.example.net"}, action: refuse}
+  # pushes to our own repository don't need asking about
+  - {match: {kind: git-push, destination: "github.com:ada/shop.git"}, action: allow}
+  # any GitHub command is at least medium risk
+  - {match: {kind: gh}, risk: medium}
+```
+
+A rule matches on any of three things, and an empty one matches anything:
+
+- `kind`: `git-push`, `npm-publish`, `gh` or `http`.
+- `destination`: where the action goes, as the page shows it. For a request
+  that is the host (with its port if it has one), for a push the remote's
+  address, for `gh` "GitHub repository owner/name". `*` stands for any run
+  of characters.
+- `data`: what the action carries: `real` (a detail of yours), `canary` (a
+  planted value) or `secret`, or the label of one thing, with `*` allowed.
+
+and sets an `action`, a minimum `risk`, or both:
+
+- `allow`: let it through without holding it.
+- `hold`: hold it for your decision. This is what a rule with only a `risk`
+  does. It can hold things the built-in rules let through, such as a `GET`
+  to a host you name.
+- `refuse`: don't do it and don't ask. The agent gets an error (a `403` for
+  a request, a failed command for `git`, `npm` or `gh`), and the action
+  shows on the page as refused by the policy.
+- `risk`: `low`, `medium` or `high`. The action is rated at least that.
+
+The first rule that matches counts. Rules don't apply to file changes in a
+sandbox or to ordinary traffic to the model provider.
+
+Three things limit what a rule can do:
+
+- The built-in rules for high-risk actions can't be loosened. `allow` is
+  ignored for a force push, a deletion, a publish, anything carrying one of
+  your details, a planted value or a secret, and the rest of the list under
+  "The reviewer" below.
+- An organisation can have a policy of its own, named with `--org-policy
+  FILE` or `REHEARSAL_ORG_POLICY`. The project's file can only be as strict
+  as it, or stricter: a project `allow` for something the organisation holds
+  or refuses is ignored.
+- The files are read once, before the agent starts. If the agent edits the
+  policy during a session, nothing changes for that session, and the edit is
+  reported under "Unusual".
+
+An ignored rule is never silent. The page and `rehearsal-report.md` list each
+one with the reason, and so does:
+
+```
+rehearse policy check
+```
+
+which prints the rules in force in the current folder, the ones that can be
+told to have no effect, and the policy's hash. That hash is in the session's
+record and in attestations.
+
+A policy file that can't be read stops `rehearse` from starting.
+
+### Rules it offers to write
+
+When you have allowed the same kind of action to the same destination in
+three earlier sessions, the decision screen offers a rule for it: the exact
+line, with a tick box that starts empty. If you tick it, that one line is
+added to `.rehearsal/policy.yaml` after your decision is carried out. Nothing
+is ever added without the tick, and no rule is offered for an action the
+built-in rules rate high. What is remembered between sessions is the kind,
+the destination and a count, in `~/.local/state/rehearsal/approvals.json`.
+
 ## A record others can check
 
 Every entry in a session's log carries the hash of the entry before it, and
@@ -347,6 +423,7 @@ On WSL the page opens in its own Edge window. Anywhere else, open the address
 | `--no-provider-check` | Don't hold requests to the model provider that use a second login or upload a file. |
 | `--sandbox` | Experimental. Keep the agent's file changes in a layer until you allow them, and cut off any network that doesn't go through Rehearsal. |
 | `--sandbox-write PATH` | With `--sandbox`: another path outside the project the agent may write to for real. |
+| `--org-policy FILE` | The organisation's policy file, which the project's own can only add to. |
 | `--allow-host HOST` | Never hold writes to `HOST`. Default: `http-intake.logs.us5.datadoghq.com`, where Claude Code sends its own telemetry. |
 | `--handlers DIR` | Folder of extra handler files. |
 | `--reviewer-url URL` | Address of the local model. |
@@ -358,8 +435,8 @@ On WSL the page opens in its own Edge window. Anywhere else, open the address
 Options go before the agent command. Everything after it is passed to the
 agent untouched.
 
-`verify`, `export`, `attest` and `verify-attestation` are commands of
-`rehearse` itself. To wrap a program that has one of those names, give its
+`verify`, `export`, `attest`, `verify-attestation` and `policy` are commands
+of `rehearse` itself. To wrap a program that has one of those names, give its
 path: `rehearse ./verify`.
 
 Add `rehearsal-ledger.json`, `rehearsal-report.md` and `CANARY.txt` to your
@@ -446,6 +523,13 @@ for it, and `rehearse` says so when it exits.
   proxy. Names such as `localhost` work.
 - The wrapped command is told to trust only Rehearsal's certificate, so a tool
   that skips the proxy may fail to connect.
+- A policy `allow` lets a `gh` command that reads its input from a pipe run
+  for real after the stand-in has already read that input, so the command
+  gets none. Other commands and requests are not affected.
+- A project rule that loosens an organisation rule is found for sure when an
+  action meets both. `rehearse policy check` finds the plain cases ahead of
+  time, by comparing the two rules' patterns, and can miss an overlap between
+  two wildcards.
 - The signature on a session's record shows that whoever holds your signing
   key signed that log. Someone with the key and the log can rewrite both. A
   session that was killed before it ended has no signature and does not
@@ -490,6 +574,7 @@ REHEARSAL_LIVE_MODEL_URL=http://192.168.96.1:11434/v1 go test -run TestLive ./in
 | `internal/review` | The local-model reviewer and the rules it can't go below |
 | `internal/apply` | Performing approved actions |
 | `internal/ledger` | Building the ledger and the session report from the log |
+| `internal/policy` | The policy files, what they decide, and rules learned from approvals |
 | `internal/record` | The signing key, the signed checkpoint and attestations |
 | `internal/sandbox` | Running the agent under bubblewrap, and its file changes |
 | `docs` | The record and attestation formats |

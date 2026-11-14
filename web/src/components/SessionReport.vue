@@ -139,6 +139,15 @@ async function copy(): Promise<void> {
         <div v-for="(c, i) in r.commands" :key="i">{{ c.text }} ({{ c.failed === null ? 'result not reported' : c.failed ? 'reported an error' : 'ok' }})</div>
       </div>
       <div v-for="flag in r.flags" :key="flag" class="fact fact-high">Worth a second look: {{ flag }}</div>
+      <div v-if="ledger.policy.allowed > 0" class="fact">
+        {{ ledger.policy.allowed === 1 ? '1 action was' : `${ledger.policy.allowed} actions were` }} let through by a rule in your policy and not held.
+      </div>
+      <div v-for="ig in ledger.policy.ignored" :key="ig.source + ig.rule" class="fact">
+        A rule in the {{ ig.source }} policy was ignored: {{ ig.rule }}. {{ ig.why }}.
+      </div>
+      <div v-for="offer in ledger.policy.offers.filter((o) => o.added)" :key="offer.id" class="fact">
+        Added to .rehearsal/policy.yaml because you ticked it: {{ offer.line }}
+      </div>
       <div v-if="r.claimsChecked" class="claims">
         <div class="fact">Claimed versus observed (experimental, written by an AI model on this computer):</div>
         <div v-if="r.claims.length === 0" class="fact">The agent's final message made no claim the commands bear on.</div>

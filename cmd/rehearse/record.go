@@ -271,6 +271,7 @@ func attestSession(w io.Writer, name, out string) (err error) {
 		ToolVersion: l.ToolVersion,
 		StartedAt:   l.StartedAt.UTC(),
 		EndedAt:     l.EndedAt,
+		PolicyHash:  l.Policy.Hash,
 		Chain:       record.ChainEnd{Entries: verdict.Entries, FinalHash: verdict.FinalHash},
 	}
 	if l.Commits != nil {

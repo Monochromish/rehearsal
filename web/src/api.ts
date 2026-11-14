@@ -36,6 +36,10 @@ export type EventType =
   | 'commits_created'
   | 'sandbox_started'
   | 'sensitive_write'
+  | 'policy_allowed'
+  | 'policy_ignored'
+  | 'rule_offered'
+  | 'rule_added'
 
 const kinds: readonly Kind[] = ['real', 'canary', 'secret']
 const categories: readonly Category[] = ['provider', 'other']
@@ -68,6 +72,10 @@ const eventTypes: readonly EventType[] = [
   'commits_created',
   'sandbox_started',
   'sensitive_write',
+  'policy_allowed',
+  'policy_ignored',
+  'rule_offered',
+  'rule_added',
 ]
 
 export interface Identifier {
@@ -142,6 +150,27 @@ export interface Ledger {
   sandboxed: boolean
   // writes to paths that decide what runs on this machine
   sensitive: SensitiveWrite[]
+  policy: PolicyState
+}
+
+/** What the session's policy files did. */
+export interface PolicyState {
+  // empty when no policy file was in force
+  hash: string
+  // how many actions a rule let through that would otherwise have been held
+  allowed: number
+  ignored: { rule: string; source: string; why: string }[]
+  offers: RuleOffer[]
+}
+
+/** A rule the user may add to the project's policy file. */
+export interface RuleOffer {
+  id: string
+  // the rule exactly as it would be written to the file
+  line: string
+  // earlier sessions in which the user allowed this
+  times: number
+  added: boolean
 }
 
 export interface SensitiveWrite {
@@ -346,10 +375,28 @@ function parseLedger(value: unknown): Ledger {
     }),
     report: parseReport(from['report']),
     record: parseRecord(from['record']),
+    policy: parsePolicy(from['policy']),
     sandboxed: from['sandbox'] !== null,
     sensitive: list(from, 'sensitive', what, (item, itemWhat) => {
       const s = fields(item, itemWhat)
       return { path: text(s, 'path', itemWhat), reason: text(s, 'reason', itemWhat), real: maybeFlag(s, 'real', itemWhat) }
+    }),
+  }
+}
+
+function parsePolicy(value: unknown): PolicyState {
+  const what = 'ledger.policy'
+  const from = fields(value, what)
+  return {
+    hash: text(from, 'hash', what),
+    allowed: list(from, 'allowed', what, (item) => item).length,
+    ignored: list(from, 'ignored', what, (item, itemWhat) => {
+      const i = fields(item, itemWhat)
+      return { rule: text(i, 'rule', itemWhat), source: text(i, 'source', itemWhat), why: text(i, 'why', itemWhat) }
+    }),
+    offers: list(from, 'offers', what, (item, itemWhat) => {
+      const o = fields(item, itemWhat)
+      return { id: text(o, 'id', itemWhat), line: text(o, 'line', itemWhat), times: count(o, 'times', itemWhat), added: flag(o, 'added', itemWhat) }
     }),
   }
 }
@@ -533,11 +580,14 @@ export async function getDiff(id: string): Promise<string> {
   return body
 }
 
-/** Performs the approved actions and refuses every other held action. */
-export async function applyApproved(approve: string[]): Promise<void> {
+/**
+ * Performs the approved actions and refuses every other held action.
+ * rules are the offered policy rules the user ticked.
+ */
+export async function applyApproved(approve: string[], rules: string[]): Promise<void> {
   const scripted = fixture()
   if (scripted !== null) return scripted.apply(approve)
-  await decide({ decision: 'apply', approve })
+  await decide({ decision: 'apply', approve, rules })
 }
 
 /** Refuses every held action. */
@@ -547,7 +597,7 @@ export async function discardAll(): Promise<void> {
   await decide({ decision: 'discard' })
 }
 
-async function decide(body: { decision: 'apply'; approve: string[] } | { decision: 'discard' }): Promise<void> {
+async function decide(body: { decision: 'apply'; approve: string[]; rules: string[] } | { decision: 'discard' }): Promise<void> {
   const res = await fetch('/api/apply', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

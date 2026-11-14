@@ -30,6 +30,7 @@ func TestSensitive(t *testing.T) {
 		{".claude/hooks/pre-tool.sh", "agent's own settings"},
 		{"packages/web/.claude/settings.json", "agent's own settings"},
 		{".mcp.json", "agent's own settings"},
+		{".rehearsal/policy.yaml", "Rehearsal's own rules"},
 		{".bashrc", "shell start-up"},
 		{"dotfiles/.zshrc", "shell start-up"},
 		{".config/fish/config.fish", "shell start-up"},

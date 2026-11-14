@@ -88,8 +88,17 @@ func Main(name string, args []string) int {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if _, err := hold.Report(ctx, socket, c); err != nil {
+	out, err := hold.Report(ctx, socket, c)
+	if err != nil {
 		return refuse(name, err)
+	}
+	switch out.Action {
+	case hold.Passed:
+		// the session's policy lets this through, so it runs for real
+		return pass(real, name, args, false)
+	case hold.Refused:
+		fmt.Fprintf(os.Stderr, "rehearse: this %s command is refused by the policy for this project, so it was not run. Rule: %s\n", name, out.Rule)
+		return 1
 	}
 	fmt.Fprint(os.Stdout, stdout)
 	fmt.Fprint(os.Stderr, stderr)

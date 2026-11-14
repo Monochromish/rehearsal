@@ -40,6 +40,15 @@ func rank(r events.Risk) int {
 // access, carries one of the user's details, or pushes files that look
 // like secrets. Low: the few kinds marked Minor. Everything else is medium.
 func Floor(a events.ActionHeld) events.Risk {
+	built := builtInFloor(a)
+	// a policy can raise the minimum, never lower it
+	if rank(a.PolicyRisk) > rank(built) {
+		return a.PolicyRisk
+	}
+	return built
+}
+
+func builtInFloor(a events.ActionHeld) events.Risk {
 	switch {
 	case a.Force, a.Deletes, a.Publishes, a.ChangesAccess, len(a.IdentifierIDs) > 0, len(a.SecretFiles) > 0,
 		a.ProviderDoor, a.Provenance != nil:

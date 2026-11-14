@@ -30,6 +30,7 @@ import (
 	"rehearsal/internal/hold"
 	"rehearsal/internal/ident"
 	"rehearsal/internal/ledger"
+	"rehearsal/internal/policy"
 	"rehearsal/internal/proxy"
 	"rehearsal/internal/record"
 	"rehearsal/internal/review"
@@ -84,6 +85,8 @@ type options struct {
 
 	sandbox      bool
 	sandboxWrite []string
+
+	orgPolicy string
 }
 
 func main() {
@@ -119,6 +122,7 @@ func main() {
 	}
 	// To wrap a program that shares a name with one of these, give its path.
 	root.AddCommand(recordCommands()...)
+	root.AddCommand(policyCommand())
 	f := root.Flags()
 	f.SetInterspersed(false) // everything after the command belongs to it
 	f.IntVar(&opts.port, "port", 0, "port for the page (default: any free port)")
@@ -133,6 +137,7 @@ func main() {
 	f.DurationVar(&opts.reviewerTimeout, "reviewer-timeout", 45*time.Second, "how long to wait for the model on each action")
 	f.BoolVar(&opts.sandbox, "sandbox", false, "experimental: keep the agent's file changes in a layer over the project until you allow them, and cut off any network that does not go through Rehearsal")
 	f.StringSliceVar(&opts.sandboxWrite, "sandbox-write", nil, "with --sandbox: another path outside the project the agent may write to for real")
+	f.StringVar(&opts.orgPolicy, "org-policy", os.Getenv(envOrgPolicy), "the organisation's policy file, which the project's own can only add to (env "+envOrgPolicy+")")
 
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "rehearse:", err)
@@ -173,6 +178,14 @@ func rehearse(opts options, command []string) (exitCode int, err error) {
 	if err != nil {
 		return 1, err
 	}
+	// Read once, here. A policy file that cannot be read stops the session:
+	// carrying on without rules someone wrote would be the wrong surprise.
+	// Nothing the agent does to the file later changes this session.
+	pol, err := policy.Load(workDir, opts.orgPolicy)
+	if err != nil {
+		return 1, err
+	}
+	policyAtStart := policy.ProjectSum(workDir)
 	sessionDir := filepath.Join(stateDir, "sessions", time.Now().Format("20060102-150405")+"-"+strings.ToLower(rand.Text()[:6]))
 	caDir := filepath.Join(stateDir, "ca")
 	for _, d := range []string{sessionDir, caDir} {
@@ -223,9 +236,14 @@ func rehearse(opts options, command []string) (exitCode int, err error) {
 	// Only the program name is stored: its arguments may contain secrets.
 	if _, err := log.Append(events.TypeSessionStarted, events.SessionStarted{
 		Command: command[:1], WorkDir: workDir, ProviderHosts: opts.providers, Identifiers: identifiers,
-		Holding: !opts.noHold, InputWatched: run.WatchesInput(), ToolVersion: version,
+		Holding: !opts.noHold, InputWatched: run.WatchesInput(), ToolVersion: version, PolicyHash: pol.Hash,
 	}); err != nil {
 		return 1, err
+	}
+	for _, ig := range pol.Check() {
+		if _, err := log.Append(events.TypePolicyIgnored, events.PolicyIgnored{Rule: ig.Rule, Source: ig.Source, Why: ig.Why}); err != nil {
+			return 1, err
+		}
 	}
 
 	proxyLog, err := os.OpenFile(filepath.Join(sessionDir, "proxy.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
@@ -263,6 +281,7 @@ func rehearse(opts options, command []string) (exitCode int, err error) {
 		// whatever happens, nothing held outlives the session
 		defer cleanup("delete the held actions", store.RemoveAll)
 		holder = hold.NewHolder(log, store)
+		holder.UsePolicy(pol, labelsOf(identifiers))
 
 		answers, err := handlers.Shipped()
 		if err == nil && opts.handlersDir != "" {
@@ -389,6 +408,14 @@ func rehearse(opts options, command []string) (exitCode int, err error) {
 		// decides on is complete before it closes
 		cleanup("list the sandbox's file changes", files.hold)
 	}
+	if policy.ProjectSum(workDir) != policyAtStart {
+		if _, aerr := log.Append(events.TypeSensitiveWrite, events.SensitiveWrite{
+			Path: policy.ProjectFile, Real: true,
+			Reason: "It changes Rehearsal's own rules for this project. The change had no effect on this session: the rules were read before the agent started.",
+		}); aerr != nil {
+			err = errors.Join(err, aerr)
+		}
+	}
 	stopIntake()
 	if holder != nil {
 		holder.Close()
@@ -403,7 +430,7 @@ func rehearse(opts options, command []string) (exitCode int, err error) {
 	}
 
 	if holder != nil && holder.Count() > 0 {
-		d := decider{log: log, store: store, reviewer: reviewer, web: web, keep: keep}
+		d := decider{log: log, store: store, reviewer: reviewer, web: web, keep: keep, policy: pol, workDir: workDir, stateDir: stateDir}
 		if box != nil {
 			d.files = box
 		}
@@ -515,6 +542,10 @@ type decider struct {
 	keep     []string
 	// where approved file changes are copied from; nil without a sandbox
 	files apply.FileApplier
+
+	policy   *policy.Policy
+	workDir  string
+	stateDir string
 }
 
 func (d decider) run() (failed bool, err error) {
@@ -557,15 +588,30 @@ func (d decider) run() (failed bool, err error) {
 		return false, reviewErr
 	}
 
-	fmt.Fprintf(os.Stderr, "rehearse: decide what happens to them on the page: %s\n          (Ctrl+C here discards them all)\n", d.web.URL)
+	approvals, err := policy.LoadApprovals(d.stateDir)
+	if err != nil {
+		return false, err
+	}
+	offers, err := offerRules(d.log, d.policy, approvals, d.workDir, l.Actions)
+	if err != nil {
+		return false, err
+	}
+
 	decision := server.Decision{Discard: true}
-	select {
-	case decision = <-d.web.Decisions():
-	case <-ctx.Done():
+	waiting := slices.ContainsFunc(l.Actions, func(a ledger.Action) bool { return a.Decision == ledger.Undecided })
+	if waiting {
+		fmt.Fprintf(os.Stderr, "rehearse: decide what happens to them on the page: %s\n          (Ctrl+C here discards them all)\n", d.web.URL)
+		select {
+		case decision = <-d.web.Decisions():
+		case <-ctx.Done():
+		}
 	}
 
 	var approved []events.ActionHeld
 	for _, a := range l.Actions {
+		if a.Decision != ledger.Undecided {
+			continue // refused by the policy when it was held
+		}
 		if !decision.Discard && slices.Contains(decision.Approve, a.ID) {
 			approved = append(approved, a.ActionHeld)
 			_, err = d.log.Append(events.TypeActionApproved, events.ActionApproved{ActionID: a.ID})
@@ -583,7 +629,26 @@ func (d decider) run() (failed bool, err error) {
 	})
 	applier := apply.Applier{Log: d.log, Store: d.store, Keep: d.keep, Files: d.files}
 	_, failed, err = applier.Run(ctx, approved)
-	return failed, err
+	if err != nil || decision.Discard {
+		return failed, err
+	}
+
+	// A rule is written only because the user ticked it, and only now.
+	for _, id := range decision.Rules {
+		rule := offers[id]
+		if aerr := policy.AppendRule(d.workDir, rule); aerr != nil {
+			err = errors.Join(err, aerr)
+			continue
+		}
+		if _, aerr := d.log.Append(events.TypeRuleAdded, events.RuleAdded{ID: id, Line: rule.String(), Path: policy.ProjectFile}); aerr != nil {
+			err = errors.Join(err, aerr)
+		}
+	}
+	after, lerr := current(d.log)
+	if lerr != nil {
+		return failed, errors.Join(err, lerr)
+	}
+	return failed, errors.Join(err, approvals.Record(d.workDir, allowedThisSession(after)))
 }
 
 func btoi(b bool) int {
