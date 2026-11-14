@@ -1116,3 +1116,47 @@ one part is refused, so a label always refers to exactly one thing.
 **It says it is small.** 39 parts by the author of the rules measure
 whether the rules do what was intended. They are not a sample of real
 changes, and the output and the README both say so.
+
+## What review is for
+
+The project began as a way to hold what an agent sends out. That is one
+third of what someone needs after an agent has worked unattended. The
+other two are what it changed and whether what it said about its work is
+true. The opening of the README now says all three, in the order a person
+meets them, and the tool has a part for each: the sorted changes, the
+claims set against the commands, and the held actions.
+
+**The lazy path has to be safe.** People who run agents unattended do not
+read much, so what is read first has to be the thing that matters. The
+choices that follow from that are the same in every front end. The
+sentence at the top names the single most serious thing in plain words
+and only then counts the rest; a bare count is never shown when something
+is high risk. Low-risk actions are one row, because six rows that all say
+"routine" teach a person to stop reading rows. A row's second line is a
+fact about the action that a person would not expect (the address came
+from a page; it overwrites the remote), taken from the action's fields,
+and not a model's description of the request. The button names the most
+serious thing it will allow, so that it is read at the moment of pressing.
+Ticking something high risk opens its detail and does nothing else: no
+timer, no second confirmation, nothing to type. Friction that is the same
+every time is learned and stops being read.
+
+**Shorter, with nothing taken away.** Every one of those cuts moves text
+behind one click and removes none. In the investigation the rule is
+stricter, because that screen is judged on whether its claims can be
+checked: a finding's headline is ten words or fewer, and the raw log
+entry that proves it is shown in full in the detail without a click.
+Custody is one line that is always on screen, with the long form behind
+it. The pipeline gives each finding its headline, its supporting line and
+its key entry, so that every front end shortens it the same way and none
+has to decide which entry is the proof.
+
+**It is counted.** With three or fewer things waiting, everything on
+screen before a click is at most 60 words. A test counts it on the
+scripted sessions.
+
+**The window is separate.** The app window is another program, built from
+other code and kept out of this repository. Everything it shows comes
+over the local HTTP API, which is documented and tested here, so the page,
+the window and anything else can be front ends on equal terms, and the
+window can run on a different system from `rehearse`.

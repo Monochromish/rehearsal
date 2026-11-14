@@ -1,37 +1,51 @@
 # Rehearsal
 
-Rehearsal wraps an AI coding agent in one command, shows you where its
-requests and your data go, and holds anything it does that reaches outside
-your machine until you have looked at it and said yes.
+Rehearsal is where you review an agent's session: what it changed, sorted
+by what needs reading; what it claimed against what happened; and what it
+tried to send out, held until you say so.
 
 ```
 rehearse claude
 ```
 
-You keep using the agent as usual. Rehearsal sits between it and the internet
-and opens a page that updates as requests go out. When the agent exits, the
-page becomes a decision screen: each held action is explained in a sentence,
-ranked by risk, and performed only if you tick it.
+You keep using the agent as usual. Rehearsal wraps it in one command and
+sits between it and the internet. While it runs, a page shows the servers
+it contacts and which of your details reach them. When it exits, anything it
+tried to do that reaches outside your machine is waiting, described in a
+sentence and ranked by risk, and is performed only if you tick it.
 
 What it does today:
 
-- Lists every server the agent contacted and which of your details, planted
-  values and secrets reached each one.
 - Holds pushes, publishes, GitHub changes and requests that write, and any
   request that carries something of yours, until you decide.
+- Records what the agent changed in the project and sorts it into parts to
+  read, parts to skim and mechanical ones, each with the rule that put it
+  there. A local model, if you have one, adds a sentence on what each part
+  does.
+- Sets what the agent's last message claimed against the commands it was
+  seen to run.
+- Lists every server the agent contacted and which of your details, planted
+  values and secrets reached each one, and says where an address came from
+  when the agent learned it from a page it fetched and not from you.
 - Checks a package against its registry before a new install runs, and stops
   the install if the package is brand new or runs a script.
-- Says where an address came from when the agent learned it from a page it
-  fetched and not from you.
 - Reports what the session did: requests, models, tokens, the commands the
   agent ran and whether they failed.
 - Lets a project, and an organisation above it, write rules for all of this
   in a file.
 - Keeps a record of the session that can't be edited without it showing, and
   signs a statement about it that a pull request can carry.
+- Investigates a record, or a folder of them, afterwards: what happened, with
+  the log entries each statement rests on (`rehearse investigate`).
+- Sorts any set of changes the same way without an agent (`rehearse review`).
 - With `--sandbox`, which is experimental, holds back the agent's changes to
   your files the same way, and cuts off any network that doesn't go through
   it.
+
+Three places show a session. The page in the browser shows servers, held
+actions and the decision. The terminal commands print the changes and the
+investigation. An app window, which is built separately and is not in this
+repository, shows all of it in one place; see "The app window".
 
 ## How this differs from an agent's own permission modes
 
@@ -148,6 +162,41 @@ A held push is not sent if its branch has moved since it was held, because you
 would be approving something other than what you were shown.
 
 `--no-hold` turns all of this off and leaves only the ledger.
+
+## What the agent changed
+
+When the agent starts, Rehearsal notes the state of every file in the
+project, tracked or not. When it exits, it notes it again and keeps the
+difference as `changes.diff` in the session's folder. It does this through
+an index file of its own, so your staged work, your working files and your
+branches are exactly as they were. Files that `.gitignore` leaves out are
+not seen. Outside a git repository nothing is recorded, and the report
+says so.
+
+The difference is split into parts: one run of changed lines, or a whole
+file when it is new, deleted, moved or binary. Rules alone put each part
+under one of three headings and give the reason in a few words:
+
+| Heading | What goes there |
+|---|---|
+| Read | Everything not listed below, and always: a change to an existing test that removes or weakens a check, deletes a test or marks one skipped; a dependency file; CI settings; paths that change how tools on your machine behave; database migrations; a line that looks like a credential; a deleted file; a binary file. |
+| Skim | Documentation, comments only, a new test file, editor and formatter settings. |
+| Mechanical | White space and formatting only, a file moved with its contents unchanged, lockfiles, generated files, vendored folders. |
+
+The rules set a minimum. A file that was moved and had one character of
+logic changed on the way is under Read, as "moved, and changes code". A
+comment that a compiler, a linter or a type checker acts on is under Read.
+A line whose indentation changes and whose quoted text changes too is not
+formatting. `rehearse bench` measures the rules on 39 labelled parts; see
+"Scenarios".
+
+With a local model, each part under Read or Skim then gets one sentence on
+what it does. See "What it says about the changes" under "The reviewer".
+
+Where to see it: `rehearsal-report.md` has the totals, `rehearse review`
+prints the same sorting for any range of commits, the app window lists the
+parts, and `GET /api/changes` serves them. The page in the browser does not
+show changes.
 
 ## The session report
 
@@ -776,6 +825,57 @@ rehearse --reviewer-url http://192.168.96.1:11434/v1 claude
 or set `REHEARSAL_REVIEWER_URL` and `REHEARSAL_REVIEWER_MODEL`. Outside WSL
 the default is `http://localhost:11434/v1`.
 
+## The app window
+
+The page in the browser was the first way to see a session. An app window
+does the same job with more room: the held actions, the claims and the
+changes in one list, and the investigation beside them. It is a separate
+program, built separately, and it is not in this repository. Nothing here
+depends on it. What follows is how `rehearse` works with it.
+
+```
+REHEARSAL_APP=/path/to/the/app rehearse claude
+```
+
+starts that program as `PROGRAM -url http://localhost:PORT`, in the
+program's own folder, in place of opening the browser. The address is an
+argument and not an environment variable so that the program can be one
+built for another system: a Windows program started from Ubuntu under WSL
+is handed neither the environment nor a usable working folder. If the
+program can't be started, `rehearse` says so and opens the page.
+
+The window gets everything through the same local HTTP API as the page and
+reads nothing from disk:
+
+| Address | What it answers |
+|---|---|
+| `/api/info` | The version, and the local model if there is one. |
+| `/api/ledger`, `/api/held`, `/api/events` | The live session, as the page uses them. |
+| `/api/changes`, `/api/change?id=` | The session's changes, sorted, and one part's diff. |
+| `/api/sessions` | Every recorded session, newest first. |
+| `/api/sessions/NAME/ledger`, `changes`, `change`, `entries`, `record` | The same for a past session, read-only. |
+| `/api/investigate`, `/api/investigate/ask` | The investigation of one session or all, and a question put to it. |
+| `/api/apply` | The decision, accepted once the agent has exited. |
+
+The window is written to cut down what has to be read before deciding.
+The sentence at the top names the most serious thing that is waiting
+before it counts the rest. Low-risk actions fold into one row with one
+tick. A row's second line is the most surprising fact about the action,
+taken from its fields and not from a model. The button says what it will
+allow ("Allow: delete database production"). In the investigation, a
+finding is a headline of ten words or fewer and one supporting line, and
+its detail shows the chain and then the one log entry that proves it, in
+full. Nothing is removed to get there: every sentence, entry and hash is
+one click away.
+
+What has and has not been tried: the window has been run on Linux only,
+against scripted sessions that put it in each of its states, and
+photographed at three widths in both themes. A test in its own code counts the words on
+screen before any click with three or fewer things waiting: 56, 51 and 51
+in the three scripted sessions that qualify, against a limit of 60. No
+person has yet taken a live agent session through it from start to
+decision.
+
 ## Stand-in answers
 
 A held request gets a plain `200` with an empty JSON object unless a handler
@@ -998,12 +1098,33 @@ for it, and `rehearse` says so when it exits.
   stays on your machine. Don't commit it.
 - A replay shows what the rules do with a recording. It doesn't reproduce
   what servers answered or what the agent would have done next.
+- What the agent changed is recorded only inside a git repository, and only
+  for files `.gitignore` does not leave out. A diff over 8 MB is cut. The
+  sorting rules know the file names and comment styles of common languages
+  and nothing about what the code means: a one-line change that inverts a
+  condition and a one-line change that fixes a typo in a string are both
+  "changes code".
+- The model's sentence on a change is that model's reading of a diff of at
+  most 6,000 characters. It can be wrong. It can move a part from "skim" to
+  "read" and nothing else. It has been tried against the real model once,
+  on one planted instruction.
+- `rehearse investigate` reports what its rules look for in what was
+  recorded. Its report lists what the record cannot show. Its accounts in
+  prose and its answers to questions have been tested with a stand-in for
+  the model only, apart from one question put to `qwen3.8:27b` on a demo
+  session. A sentence that cites nothing it was given is removed. A sentence
+  that cites real entries can still say more than they do: in that one run
+  the answer was right and cited the three right entries, and added a
+  detail ("shop name") that is in a different entry, one written by the
+  reviewer model. Open the citations.
+- The app window is not in this repository, has been run on Linux only, and
+  has not been used by a person on a live session.
 - It has been run on one setup: Ubuntu 26.04 under WSL2 on ARM64. Only the
   ledger and the holds on pushes have been run with Claude Code itself.
   Everything added since (secrets and addresses from fetched content, the
   report's commands and tokens, the record, the sandbox, the policy file,
-  the package check, replay) has been run with shell scripts standing in for
-  an agent. Every automated test talks only to servers on the same machine.
+  the package check, replay, the record of changes and their sorting, review,
+  investigate) has been run with shell scripts standing in for an agent. Every automated test talks only to servers on the same machine.
 
 ## Development
 
