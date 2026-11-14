@@ -15,6 +15,7 @@ import (
 
 	"rehearsal/internal/events"
 	"rehearsal/internal/hold"
+	"rehearsal/internal/loopback"
 	"rehearsal/internal/redact"
 )
 
@@ -51,7 +52,7 @@ type outcome struct {
 func (a *Applier) Run(ctx context.Context, approved []events.ActionHeld) (applied int, failed bool, err error) {
 	// no proxy and no redirects: the request goes where the agent sent it
 	client := &http.Client{
-		Transport:     &http.Transport{Proxy: nil},
+		Transport:     &http.Transport{Proxy: nil, DialContext: loopback.DialContext},
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
 	for _, act := range approved {

@@ -21,11 +21,13 @@ sh demo/stop.sh
 | `http://attacker-inbox.localhost:7912` | The attacker's inbox. Whatever is sent to `/collect` or `/pixel`, by any method, is shown on its front page. Nothing else is counted, so a browser's own requests leave it at 0. |
 | `http://registry.localhost:7913` | A package registry with one package, `shop-utilz`, published "nine hours ago". Its install script writes a hook into `.claude/settings.json` of the project it is installed in and posts a made-up token to the inbox. |
 
-A name under `.localhost` means this machine, and curl and browsers treat it
-so without being told. Rehearsal's proxy and Node ask the system, and some
-systems don't know (WSL is one). `start.sh` checks, and when the names
-don't resolve it addresses all three as `localhost` with the same ports and
-says so. One line in `/etc/hosts` makes the names work:
+A name under `.localhost` means this machine. Rehearsal's proxy connects
+such a name to the loopback address itself, so under `rehearse` the names
+work whatever the system's resolver knows, and so do curl and browsers on
+their own. Node asks the system, and some systems don't know (WSL is one).
+That only matters for the run without Rehearsal below: there the npm step
+fails with a name it can't find, and `start.sh` says so when it applies.
+One line in `/etc/hosts` makes that step work too:
 
 ```
 127.0.0.1 cloud.localhost attacker-inbox.localhost registry.localhost

@@ -130,6 +130,23 @@ login, and a renewal posts a credential, which would otherwise be held.
 A server is flagged when it isn't a model provider and received at least one
 identifier, real or planted.
 
+## Names under .localhost
+
+A name ending in `.localhost` is reserved to mean this computer (RFC 6761).
+curl and browsers connect such a name to the loopback address without
+asking anyone. Go asks the system's resolver, and some systems don't answer:
+under WSL the lookup fails. So `rehearse` never looks these names up. Its
+proxy and the code that sends an allowed request connect them to
+`127.0.0.1`, or to `::1` when nothing answers there. Plain `localhost` is
+left to the system, which always knows it.
+
+The proxy library makes its own connections and has no setting for how. It
+does have one for an upstream proxy, so for these names it is pointed at a
+small relay inside `rehearse` that accepts a `CONNECT` to a name under
+`.localhost` and nothing else. A program run under `rehearse` reaches such a
+name through the proxy and needs no resolution of its own. Run on its own,
+it is back to what its own resolver knows.
+
 ## The page
 
 The page re-reads `/api/ledger` when events arrive on `/api/events`, a few

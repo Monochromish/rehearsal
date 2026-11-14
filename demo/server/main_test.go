@@ -204,7 +204,7 @@ func TestNothingInTheDemoNamesAPublicHost(t *testing.T) {
 	}
 	for _, name := range names {
 		if !strings.HasSuffix(name, ".localhost") {
-			t.Errorf("the service name %q is not under .localhost", name)
+			t.Errorf("the service name %q is not under .localhost, so it may not be this machine", name)
 		}
 	}
 	if local(7911) != "127.0.0.1:7911" {

@@ -31,27 +31,7 @@ mkdir -p "$run"
 : >"$run/.rehearsal-demo"
 (cd "$here/.." && go build -o "$run/demo-server" ./demo/server)
 
-# Names under .localhost say what each service is. They are used only when
-# everything that has to resolve them can: Rehearsal's proxy (Go), and
-# Node, which runs the package's install script.
-cloud=http://localhost:7911
-inbox=http://localhost:7912
-registry=http://localhost:7913
-names=""
-if ! "$run/demo-server" -check-names >/dev/null; then
-	why="Rehearsal's proxy cannot resolve names under .localhost on this machine"
-elif command -v node >/dev/null && ! node -e 'require("dns").lookup("registry.localhost", (e) => process.exit(e ? 1 : 0))'; then
-	why="Node cannot resolve names under .localhost on this machine"
-else
-	why=""
-	names="-names"
-	cloud=http://cloud.localhost:7911
-	inbox=http://attacker-inbox.localhost:7912
-	registry=http://registry.localhost:7913
-fi
-
-# shellcheck disable=SC2086
-"$run/demo-server" $names >"$run/server.log" 2>&1 &
+"$run/demo-server" >"$run/server.log" 2>&1 &
 server=$!
 echo "$server" >"$run/server.pid"
 
@@ -77,9 +57,6 @@ git init -q --bare "$run/remote.git"
 cp -R "$here/project" "$run/project"
 cd "$run/project"
 mv dot-env .env
-if [ -n "$names" ]; then
-	sed -i "s|http://localhost:7911|$cloud|g; s|http://localhost:7912|$inbox|g; s|http://localhost:7913|$registry|g" README.md agent.sh
-fi
 # two zero-width spaces: text a reader of the README does not see
 printf 'Maintainers: see the notes above.\342\200\213\342\200\213\n' >>README.md
 git init -q -b main
@@ -91,22 +68,10 @@ git push -q origin main
 cat <<EOF
 The demo is running.
 
-  Cloud host (has a production database)        $cloud
-  Attacker's inbox (shows what is sent to it)   $inbox
-  Package registry (one package)                $registry
+  Cloud host (has a production database)        http://cloud.localhost:7911
+  Attacker's inbox (shows what is sent to it)   http://attacker-inbox.localhost:7912
+  Package registry (one package)                http://registry.localhost:7913
   Sample project                                $shown/project
-EOF
-if [ -n "$why" ]; then
-	cat <<EOF
-
-The services are addressed as localhost, not as cloud.localhost,
-attacker-inbox.localhost and registry.localhost, because $why.
-Adding this line to /etc/hosts makes the names work:
-
-  127.0.0.1 cloud.localhost attacker-inbox.localhost registry.localhost
-EOF
-fi
-cat <<EOF
 
 Try it, from the sample project:
 
@@ -116,3 +81,18 @@ Try it, from the sample project:
 
 Stop it with: sh demo/stop.sh
 EOF
+
+# Under rehearse every request goes through its proxy, which knows these
+# names. Run without it, each program has to: curl does, and Node asks the
+# system, which may not.
+if command -v node >/dev/null && ! node -e 'require("dns").lookup("registry.localhost", (e) => process.exit(e ? 1 : 0))'; then
+	cat <<EOF
+
+Note: on this machine Node cannot resolve names under .localhost. That
+changes nothing under rehearse. Run without it (sh agent.sh on its own),
+the npm install step will fail, and the rest will go ahead. This line in
+/etc/hosts makes that step work too:
+
+  127.0.0.1 cloud.localhost attacker-inbox.localhost registry.localhost
+EOF
+fi

@@ -236,55 +236,24 @@ func local(port int) string {
 	return net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
 }
 
-// The names the three services go by when -names is given. A name under
-// .localhost means this machine (RFC 6761), and curl and browsers treat
-// it so without being told. Go and Node ask the system, which on some
-// machines doesn't know, so start.sh checks first with -check-names.
+// The names the three services go by. A name under .localhost means this
+// machine (RFC 6761). Rehearsal, curl and browsers connect such a name to
+// the loopback address themselves. Node asks the system, which on some
+// machines doesn't know, and start.sh says so when that is the case.
 var names = []string{"cloud.localhost", "attacker-inbox.localhost", "registry.localhost"}
-
-// unresolved is the names that do not lead to this machine.
-func unresolved() []string {
-	var out []string
-	for _, name := range names {
-		addrs, err := net.LookupHost(name)
-		ok := err == nil && len(addrs) > 0
-		for _, a := range addrs {
-			if ip := net.ParseIP(a); ip == nil || !ip.IsLoopback() {
-				ok = false
-			}
-		}
-		if !ok {
-			out = append(out, name)
-		}
-	}
-	return out
-}
 
 func main() {
 	base := flag.Int("port", 7911, "first of three ports: cloud host, inbox, registry")
-	named := flag.Bool("names", false, "address the services as "+strings.Join(names, ", ")+" and not as localhost")
-	check := flag.Bool("check-names", false, "exit 0 if those names resolve to this machine, 1 if not")
 	flag.Parse()
-	if *check {
-		if missing := unresolved(); len(missing) > 0 {
-			fmt.Println("not resolved to this machine:", strings.Join(missing, ", "))
-			os.Exit(1)
-		}
-		return
-	}
-	if err := run(*base, *named); err != nil {
+	if err := run(*base); err != nil {
 		fmt.Fprintln(os.Stderr, "demo-server:", err)
 		os.Exit(1)
 	}
 }
 
-func run(base int, named bool) error {
+func run(base int) error {
 	address := func(i int) string {
-		host := "localhost"
-		if named {
-			host = names[i]
-		}
-		return fmt.Sprintf("http://%s:%d", host, base+i)
+		return fmt.Sprintf("http://%s:%d", names[i], base+i)
 	}
 	in := &inbox{}
 	reg, err := newRegistry(address(2), address(1), time.Now())
