@@ -40,6 +40,7 @@ export type EventType =
   | 'policy_ignored'
   | 'rule_offered'
   | 'rule_added'
+  | 'package_checked'
 
 const kinds: readonly Kind[] = ['real', 'canary', 'secret']
 const categories: readonly Category[] = ['provider', 'other']
@@ -76,6 +77,7 @@ const eventTypes: readonly EventType[] = [
   'policy_ignored',
   'rule_offered',
   'rule_added',
+  'package_checked',
 ]
 
 export interface Identifier {
@@ -151,6 +153,17 @@ export interface Ledger {
   // writes to paths that decide what runs on this machine
   sensitive: SensitiveWrite[]
   policy: PolicyState
+  // packages the agent asked to install that were new to the project
+  packages: PackageChecked[]
+}
+
+export interface PackageChecked {
+  manager: string
+  risk: Risk
+  // what the registry said, in plain words
+  facts: string
+  // the install was stopped because of this package
+  blocked: boolean
 }
 
 /** What the session's policy files did. */
@@ -376,6 +389,15 @@ function parseLedger(value: unknown): Ledger {
     report: parseReport(from['report']),
     record: parseRecord(from['record']),
     policy: parsePolicy(from['policy']),
+    packages: list(from, 'packages', what, (item, itemWhat) => {
+      const p = fields(item, itemWhat)
+      return {
+        manager: text(p, 'manager', itemWhat),
+        risk: oneOf(p, 'risk', risks, itemWhat),
+        facts: text(p, 'facts', itemWhat),
+        blocked: flag(p, 'blocked', itemWhat),
+      }
+    }),
     sandboxed: from['sandbox'] !== null,
     sensitive: list(from, 'sensitive', what, (item, itemWhat) => {
       const s = fields(item, itemWhat)

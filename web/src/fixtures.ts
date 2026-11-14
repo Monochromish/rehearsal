@@ -206,6 +206,10 @@ function scripted(phase: Phase, actions: HeldAction[], extraServers: Server[] = 
               offers: [{ id: 'r1', line: '{match: {kind: "gh", destination: "GitHub repository ada/shop"}, action: allow}', times: 3, added: false }],
             }
           : { hash: '', allowed: 0, ignored: [], offers: [] },
+      packages:
+        extraServers.length > 0
+          ? [{ manager: 'npm', risk: 'high', facts: 'shop-utilz 1.0.0: published 9 hours ago; runs a script when installed', blocked: true }]
+          : [],
       sandboxed: list.some((a) => a.kind === 'file'),
       sensitive: list.some((a) => a.kind === 'file') ? [{ path: '.git/hooks/pre-commit', reason: hookReason, real: false }] : [],
       report: {

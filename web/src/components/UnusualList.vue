@@ -13,7 +13,7 @@ interface Line {
   key: string
   title: string
   route: string
-  word: 'Held' | 'Noted'
+  word: 'Held' | 'Noted' | 'Stopped'
 }
 
 // Held: an action kept back for a decision. Noted: something that already
@@ -39,6 +39,16 @@ const lines = computed<Line[]>(() => [
       word: 'Noted',
     }),
   ),
+  ...props.ledger.packages
+    .filter((p) => p.blocked)
+    .map(
+      (p, i): Line => ({
+        key: `package-${i}`,
+        title: `An ${p.manager} install was stopped before it ran`,
+        route: p.facts,
+        word: 'Stopped',
+      }),
+    ),
   ...props.held.actions.map(
     (a): Line => ({ key: a.id, title: plainTitle(a), route: route(a, props.agent), word: 'Held' }),
   ),
@@ -53,7 +63,7 @@ const lines = computed<Line[]>(() => [
         <div class="title">{{ line.title }}</div>
         <div class="route">{{ line.route }}</div>
       </div>
-      <div :class="line.word === 'Noted' ? 'state state-high' : 'state state-medium'">{{ line.word }}</div>
+      <div :class="line.word === 'Held' ? 'state state-medium' : 'state state-high'">{{ line.word }}</div>
     </div>
   </div>
 </template>

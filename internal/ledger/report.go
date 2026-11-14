@@ -403,6 +403,17 @@ func (l Ledger) Markdown() string {
 		b.WriteString(strings.TrimPrefix(l.actionsText(), "\nHELD ACTIONS\n"))
 	}
 
+	if len(l.Packages) > 0 {
+		b.WriteString("\n## Packages the agent asked to install\n\nOnly packages new to the project are listed. An install was stopped when any package in it was high risk.\n\n")
+		for _, p := range l.Packages {
+			outcome := "went ahead"
+			if p.Blocked {
+				outcome = "stopped"
+			}
+			fmt.Fprintf(&b, "- %s (%s, %s risk, %s)\n", p.Facts, p.Manager, p.Risk, outcome)
+		}
+	}
+
 	if p := l.Policy; p.Hash != "" || len(p.Ignored) > 0 {
 		b.WriteString("\n## Policy\n\n")
 		if p.Hash == "" {

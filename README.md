@@ -204,6 +204,48 @@ What it doesn't do:
   happened. Nothing in the session's log can, since the process that writes
   the log is the one that died.
 
+## Package installs
+
+When the agent installs a package the project hasn't installed before,
+Rehearsal asks the registry about it first. This covers `npm install <pkg>`
+(and `npm i`, `npm add`), `pnpm add`, `yarn add`, `pip install <pkg>`,
+`uv add` and `uv pip install`.
+
+For each new package it looks at three facts: whether the package exists,
+when the version being installed was published, and whether installing it
+runs code of the package's own (an install script for npm; for PyPI, a
+version with no ready-built wheel). The rating follows from them:
+
+- High: no such package or version, published less than seven days ago, or
+  runs a script when installed.
+- Medium: the registry couldn't be asked, or didn't say when it was
+  published.
+- Low: everything else.
+
+An install with a high-risk package in it is stopped before it runs. The
+agent sees the command fail, with the facts:
+
+```
+rehearse: this npm install was stopped before it ran, because of what the registry says about a package it would add:
+  shop-utilz 1.0.0: published 9 hours ago; runs a script when installed
+Nothing was installed. If this is the package that was meant, the user can install it themselves, outside Rehearsal.
+```
+
+Every other install goes ahead for real. Either way the package and its
+facts are in the page's report and in `rehearsal-report.md`, and a stopped
+install shows under "Unusual" as it happens.
+
+Not checked: an install that names no package (`npm install`, `pip install
+-r requirements.txt`), a package already in a lockfile in the current folder
+(`package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`, `requirements.txt`,
+`uv.lock`, `poetry.lock`, `Pipfile.lock`), and anything installed from a
+path, an archive or an address instead of by name.
+
+An install is not held for a decision the way a push is. The agent needs its
+real result to carry on, and pausing a running session for an answer isn't
+built. So there is no way to allow a stopped install from the page: run it
+yourself if it is the package you meant.
+
 ## The policy file
 
 A project can keep rules for held actions in `.rehearsal/policy.yaml`:
@@ -523,6 +565,13 @@ for it, and `rehearse` says so when it exits.
   proxy. Names such as `localhost` work.
 - The wrapped command is told to trust only Rehearsal's certificate, so a tool
   that skips the proxy may fail to connect.
+- The package check has only been run against a local stand-in for a
+  registry, with a script standing in for the package manager. `pnpm`,
+  `yarn` and `uv` are parsed and unit-tested but have not been run end to
+  end. Packages that a named package depends on are not looked at.
+- A package's age and install script say nothing about whether it is safe.
+  An old package with no script can still be harmful, and the check does not
+  read any code.
 - A policy `allow` lets a `gh` command that reads its input from a pipe run
   for real after the stand-in has already read that input, so the command
   gets none. Other commands and requests are not affected.

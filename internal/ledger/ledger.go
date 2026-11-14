@@ -56,6 +56,8 @@ type Ledger struct {
 	// noticed
 	Sensitive []events.SensitiveWrite `json:"sensitive"`
 	Policy    Policy                  `json:"policy"`
+	// packages the agent asked to install that were new to the project
+	Packages []events.PackageChecked `json:"packages"`
 }
 
 // Policy is what the session's policy files did.
@@ -173,7 +175,8 @@ func Build(evs []events.Event) (Ledger, error) {
 	l := Ledger{
 		Phase: PhaseRunning, Watching: []events.Identifier{}, Servers: []Server{}, Actions: []Action{},
 		Outside: []OutsideSource{}, Sensitive: []events.SensitiveWrite{},
-		Policy: Policy{Allowed: []events.PolicyAllowed{}, Ignored: []events.PolicyIgnored{}, Offers: []Offer{}},
+		Policy:   Policy{Allowed: []events.PolicyAllowed{}, Ignored: []events.PolicyIgnored{}, Offers: []Offer{}},
+		Packages: []events.PackageChecked{},
 	}
 	byID := map[string]events.Identifier{}
 	servers := map[string]*Server{}
@@ -220,6 +223,12 @@ func Build(evs []events.Event) (Ledger, error) {
 			report.request(d)
 		case events.TypeFirstInput:
 			report.inputSeen = true
+		case events.TypePackageChecked:
+			var d events.PackageChecked
+			if err := decode(ev, &d); err != nil {
+				return l, err
+			}
+			l.Packages = append(l.Packages, d)
 		case events.TypePolicyAllowed:
 			var d events.PolicyAllowed
 			if err := decode(ev, &d); err != nil {

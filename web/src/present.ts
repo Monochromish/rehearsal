@@ -134,7 +134,7 @@ export function dataSent(a: HeldAction): string {
 }
 
 function unusual(ledger: Ledger): number {
-  return ledger.totals.flagged_servers + ledger.totals.held + ledger.sensitive.length
+  return ledger.totals.flagged_servers + ledger.totals.held + ledger.sensitive.length + ledger.packages.filter((p) => p.blocked).length
 }
 
 /** The one sentence at the top of the page. */

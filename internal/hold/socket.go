@@ -160,6 +160,20 @@ func Listen(h *Holder, m Masker) (*Socket, error) {
 		// the stand-in treats a short reply as a failure
 		_ = json.NewEncoder(w).Encode(out)
 	})
+	mux.HandleFunc("POST /package", func(w http.ResponseWriter, r *http.Request) {
+		var checked []events.PackageChecked
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&checked); err != nil {
+			http.Error(w, "unreadable report: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		for _, c := range checked {
+			if _, err := h.log.Append(events.TypePackageChecked, c); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+		}
+		_, _ = io.WriteString(w, "noted") // the stand-in treats a short reply as a failure
+	})
 	s.srv = &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 	go func() { s.served <- s.srv.Serve(l) }()
 	return s, nil
@@ -189,8 +203,19 @@ func Report(ctx context.Context, socketPath string, c Command) (Outcome, error) 
 	return out, nil
 }
 
+// ReportPackages tells the rehearse process what an install's packages
+// were found to be, before the install runs or is stopped.
+func ReportPackages(ctx context.Context, socketPath string, checked []events.PackageChecked) error {
+	_, err := post(ctx, socketPath, "/package", checked)
+	return err
+}
+
 func report(ctx context.Context, socketPath string, c Command) (string, error) {
-	body, err := json.Marshal(c)
+	return post(ctx, socketPath, "/hold", c)
+}
+
+func post(ctx context.Context, socketPath, path string, what any) (string, error) {
+	body, err := json.Marshal(what)
 	if err != nil {
 		return "", err
 	}
@@ -200,7 +225,7 @@ func report(ctx context.Context, socketPath string, c Command) (string, error) {
 			return d.DialContext(ctx, "unix", socketPath)
 		},
 	}}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://rehearse/hold", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://rehearse"+path, bytes.NewReader(body))
 	if err != nil {
 		return "", err
 	}

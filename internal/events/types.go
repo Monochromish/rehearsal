@@ -40,7 +40,23 @@ const (
 	TypePolicyIgnored Type = "policy_ignored"
 	TypeRuleOffered   Type = "rule_offered"
 	TypeRuleAdded     Type = "rule_added"
+
+	TypePackageChecked Type = "package_checked"
 )
+
+// PackageChecked records what a registry said about a package the agent
+// asked to install that the project had not installed before.
+type PackageChecked struct {
+	// npm, pnpm, yarn, pip, pip3 or uv
+	Manager string `json:"manager"`
+	Name    string `json:"name"`
+	Version string `json:"version,omitempty"`
+	Risk    Risk   `json:"risk"`
+	// the facts in plain words: "published 9 hours ago; runs a script when installed"
+	Facts string `json:"facts"`
+	// the install was stopped because of this package
+	Blocked bool `json:"blocked"`
+}
 
 type Event struct {
 	Seq  int64           `json:"seq"`

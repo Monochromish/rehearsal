@@ -616,6 +616,53 @@ An offer needs three earlier sessions in which the action was allowed and
 then performed. The session in which the offer is made doesn't count
 towards its own offer.
 
+## Package installs
+
+The plan offered two ways to handle an install: pause the session until
+the user decides, or, if that can't be done cleanly, stop high-risk
+installs with an error and let the rest through. The second was taken. A
+pause needs a decision taken while the agent runs, and everything here that
+takes a decision (the page's three states, the decision API, the terminal
+prompt) is built around the agent having exited. Stopping with an error the
+agent can read is honest about what happened and needs none of that.
+
+So an install is never a held action. It is checked, recorded, and either
+stopped or run.
+
+The stand-in asks the registry itself, through the proxy, before the real
+package manager starts. Its client is told to use the proxy even for a
+registry on this machine, which Go's default client would reach directly,
+so the question is in the ledger wherever the registry is.
+
+The registry's address comes from the same environment variables the
+package managers read (`npm_config_registry`; `PIP_INDEX_URL`,
+`UV_INDEX_URL`, `UV_DEFAULT_INDEX`), else the public one. A registry set
+only in `.npmrc` or `pip.conf` is not picked up.
+
+For npm the whole package document is fetched, because the short form has
+no publish times. Documents over 32 MB are not read, and the package is
+then rated medium as unknown.
+
+"Runs a script when installed" means, for npm, a `preinstall`, `install` or
+`postinstall` script, or `hasInstallScript`. PyPI has no such field. A
+version with no wheel has to be built from source on this machine, which
+runs the package's build code, so that is what counts there.
+
+Seven days is the plan's figure. The publish time is taken from the
+registry and compared with this machine's clock.
+
+"Already in a lockfile" is a text search for the package's name in the form
+each lockfile writes it, in the folder the command is run from. It doesn't
+parse the lockfile or look in parent folders.
+
+A version range (`^1.0.0`) or a tag is treated as "the latest version",
+which is what the facts are then about. That is not always the version the
+package manager will pick.
+
+`pnpm`, `yarn`, `pip`, `pip3` and `uv` are stand-ins now, alongside `git`,
+`npm` and `gh`. For anything but an install of named packages they hand
+over to the real program at once.
+
 ## Deciding and applying
 
 The six new event types are the ones the plan lists. Whether the session is

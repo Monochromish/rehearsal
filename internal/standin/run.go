@@ -25,7 +25,7 @@ const (
 )
 
 // Names are the programs that get a stand-in.
-var Names = []string{"git", "npm", "gh"}
+var Names = []string{"git", "npm", "gh", "pnpm", "yarn", "pip", "pip3", "uv"}
 
 const maxStdin = 10 << 20
 
@@ -37,6 +37,9 @@ func Main(name string, args []string) int {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s: command not found\n", name)
 		return 127
+	}
+	if specs, python, ok := installs(name, args); ok {
+		return gate(real, name, args, specs, python)
 	}
 	plan := Classify(name, args)
 	if name == "git" && !plan.Hold {
