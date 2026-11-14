@@ -107,7 +107,7 @@ func TestEnvValueIsHeldAndWrittenNowhere(t *testing.T) {
 		t.Fatalf("discard answered with %d", status)
 	}
 	s.finish()
-	raw, err := os.ReadFile(filepath.Join(work, "rehearsal-ledger.json"))
+	raw, err := os.ReadFile(sessionFile(t, s.cmd.Env, "rehearsal-ledger.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,7 +206,7 @@ func TestRequestsBeforeTheFirstInputAreCounted(t *testing.T) {
 		t.Fatalf("the server received %q, want both requests", got)
 	}
 
-	raw, err := os.ReadFile(filepath.Join(work, "rehearsal-ledger.json"))
+	raw, err := os.ReadFile(sessionFile(t, cmd.Env, "rehearsal-ledger.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,7 +219,7 @@ func TestRequestsBeforeTheFirstInputAreCounted(t *testing.T) {
 	if !bi.Watched || !bi.InputSeen || bi.Requests != 1 || len(bi.Hosts) != 1 || bi.Hosts[0].Host != host {
 		t.Errorf("before input = %+v, want exactly the one request to %s", bi, host)
 	}
-	report, err := os.ReadFile(filepath.Join(work, "rehearsal-report.md"))
+	report, err := os.ReadFile(sessionFile(t, cmd.Env, "rehearsal-report.md"))
 	if err != nil {
 		t.Fatalf("the report file was not written: %v", err)
 	}

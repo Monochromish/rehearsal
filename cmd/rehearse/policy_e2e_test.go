@@ -115,14 +115,14 @@ func TestPolicyAllowLetsAMediumActionThrough(t *testing.T) {
 		t.Errorf("server received %q, want the one request", got)
 	}
 	var l ledger.Ledger
-	raw, err := os.ReadFile(filepath.Join(work, "rehearsal-ledger.json"))
+	raw, err := os.ReadFile(sessionFile(t, cmd.Env, "rehearsal-ledger.json"))
 	if err != nil || json.Unmarshal(raw, &l) != nil {
 		t.Fatalf("ledger: %v", err)
 	}
 	if len(l.Actions) != 0 || len(l.Policy.Allowed) != 1 || l.Policy.Allowed[0].Destination != host || l.Policy.Allowed[0].Rule == "" {
 		t.Errorf("held %d, allowed by policy %+v; want nothing held and one action noted as let through", len(l.Actions), l.Policy.Allowed)
 	}
-	report, err := os.ReadFile(filepath.Join(work, "rehearsal-report.md"))
+	report, err := os.ReadFile(sessionFile(t, cmd.Env, "rehearsal-report.md"))
 	if err != nil || !strings.Contains(string(report), "let through by a policy rule") {
 		t.Errorf("the report does not mention what the policy let through: %v\n%s", err, report)
 	}
@@ -163,7 +163,7 @@ func TestPolicyCannotLoosenTheOrganisationOrTheBuiltInRules(t *testing.T) {
 	}
 	s.approve()
 	s.finish()
-	report := read(t, filepath.Join(work, "rehearsal-report.md"))
+	report := read(t, sessionFile(t, s.cmd.Env, "rehearsal-report.md"))
 	if !strings.Contains(report, "Policy rules that were ignored") {
 		t.Errorf("the report does not list the ignored rules:\n%s", report)
 	}
@@ -268,7 +268,7 @@ func TestPolicyAppliesToStandInCommands(t *testing.T) {
 		if err != nil {
 			t.Fatalf("rehearse: %v\n%s", err, raw)
 		}
-		data, err := os.ReadFile(filepath.Join(work, "rehearsal-ledger.json"))
+		data, err := os.ReadFile(sessionFile(t, cmd.Env, "rehearsal-ledger.json"))
 		if err != nil || json.Unmarshal(data, &l) != nil {
 			t.Fatalf("ledger: %v", err)
 		}

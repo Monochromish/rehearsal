@@ -38,11 +38,16 @@ The signing key is the one thing kept elsewhere, in
 `$XDG_CONFIG_HOME/rehearsal` (by default `~/.config/rehearsal`). State can be
 deleted without losing anything that matters. The key can't.
 
-In the working folder `rehearse` writes `rehearsal-ledger.json` and
-`rehearsal-report.md`, and `rehearse attest` writes
-`rehearsal-attestation.json`. Nothing else is written there, apart from
-`CANARY.txt` for the length of a session and, when you accept an offered
-rule, one line in `.rehearsal/policy.yaml`.
+`rehearsal-ledger.json` and `rehearsal-report.md` are written in the
+session's folder, readable by you alone, and their paths are printed when
+`rehearse` exits. They used to go in the working folder. In a real session
+the agent read the ledger there, which holds your own details and
+everything Rehearsal had noticed. In the working folder `rehearse attest`
+writes `rehearsal-attestation.json`, and nothing else is written there
+apart from `CANARY.txt` for the length of a session and, when you accept an
+offered rule, one line in `.rehearsal/policy.yaml`. Without `--sandbox` an
+agent can still read the session's folder if it goes looking. With it, the
+folder is hidden.
 
 go-mitmproxy can't report which port it bound, so we find a free port first
 and hand it over. If another program takes that port in between, the proxy
@@ -99,8 +104,8 @@ Only the program name of the wrapped command is stored. Its arguments may
 hold secrets.
 
 The watched values themselves, your real ones included, appear on the page
-and in `rehearsal-ledger.json`. Both are local. This repository's
-`.gitignore` keeps the JSON file out of version control. Secrets are the
+and in `rehearsal-ledger.json`. Both are local, and the file is in the
+session's folder with owner-only permissions. Secrets are the
 exception: only a label and a salted hash of each are ever kept.
 
 ## When recording fails
@@ -461,7 +466,8 @@ model, a final message with an instruction planted in it to mark every
 claim as supported still had its "all tests pass" claim marked as
 contradicted by the failing test command.
 
-`rehearsal-report.md` is written beside `rehearsal-ledger.json`. Secrets
+`rehearsal-report.md` is written beside `rehearsal-ledger.json`, in the
+session's folder. Secrets
 appear in it by label only.
 
 ## The record

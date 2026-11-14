@@ -140,7 +140,8 @@ stopping at the first failure. "Discard all" performs none, and so does
 pressing Ctrl+C in the terminal. Afterwards the page shows a table of every
 held action with what was sent and what was decided, which can be copied as
 Markdown. The same result is printed in the terminal and written to
-`rehearsal-ledger.json`.
+`rehearsal-ledger.json` in the session's folder. The terminal says where
+that is when `rehearse` exits.
 
 A held push is not sent if its branch has moved since it was held, because you
 would be approving something other than what you were shown.
@@ -150,7 +151,8 @@ would be approving something other than what you were shown.
 ## The session report
 
 When the session is over, the page and `rehearsal-report.md` say what was
-observed, and only that:
+observed, and only that. The file is written in the session's folder, beside
+the ledger, and not in your project, where an agent would read it:
 
 - What left your computer: servers, requests and bytes, the model provider
   apart from everything else, and which details and secrets reached which
@@ -614,8 +616,10 @@ On WSL the page opens in its own Edge window. Anywhere else, open the address
 Options go before the agent command. Everything after it is passed to the
 agent untouched.
 
-Add `rehearsal-ledger.json`, `rehearsal-report.md` and `CANARY.txt` to your
-project's `.gitignore`.
+Add `CANARY.txt` to your project's `.gitignore`. It is the only file
+`rehearse` puts in the project while an agent runs, and it is removed at the
+end. The ledger and the report go in the session's folder, under
+`~/.local/state/rehearsal/sessions`.
 
 ### Commands
 
@@ -755,7 +759,8 @@ for it, and `rehearse` says so when it exits.
   the session ran in. Commits the agent made in another repository are not
   seen.
 - The page stops updating when `rehearse` exits. An open window keeps the
-  final state, but reloading it fails. Use `rehearsal-ledger.json` after that.
+  final state, but reloading it fails. Use `rehearsal-ledger.json` in the
+  session's folder after that.
 - The ledger file holds your real details (the values being watched for). It
   stays on your machine. Don't commit it.
 - A replay shows what the rules do with a recording. It doesn't reproduce

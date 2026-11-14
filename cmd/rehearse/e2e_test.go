@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"io/fs"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"rehearsal/internal/events"
 	"rehearsal/internal/ident"
@@ -74,6 +76,33 @@ func closedPort(t *testing.T) string {
 // that steer the wrapped command around the proxy, state in a temp dir,
 // git cut off from the developer's own configuration, and no local model
 // unless the test names one.
+// sessionFile is the newest copy of a file that rehearse writes in a
+// session's folder, found under the state folder named in env.
+func sessionFile(t *testing.T, env []string, name string) string {
+	t.Helper()
+	state := ""
+	for _, kv := range env {
+		if v, ok := strings.CutPrefix(kv, "XDG_STATE_HOME="); ok {
+			state = v // the last one set is the one in force
+		}
+	}
+	paths, err := filepath.Glob(filepath.Join(state, "rehearsal", "sessions", "*", name))
+	if err != nil || len(paths) == 0 {
+		t.Fatalf("no %s in a session folder under %q (%v)", name, state, err)
+	}
+	newest, at := "", time.Time{}
+	for _, p := range paths {
+		info, err := os.Stat(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if newest == "" || info.ModTime().After(at) {
+			newest, at = p, info.ModTime()
+		}
+	}
+	return newest
+}
+
 func cleanEnv(t *testing.T, extra ...string) []string {
 	t.Helper()
 	dropped := []string{"no_proxy", "xdg_state_home", "xdg_config_home", "rehearsal_reviewer_url", "rehearsal_reviewer_model"}
@@ -124,9 +153,24 @@ func TestCanaryReachesLocalServer(t *testing.T) {
 		t.Fatalf("rehearse curl failed: %v\n%s", err, out)
 	}
 
-	raw, err := os.ReadFile(filepath.Join(workDir, "rehearsal-ledger.json"))
+	ledgerPath := sessionFile(t, cmd.Env, "rehearsal-ledger.json")
+	raw, err := os.ReadFile(ledgerPath)
 	if err != nil {
 		t.Fatalf("ledger file not written: %v\n%s", err, out)
+	}
+	// Neither file goes in the project, where the agent would read it, and
+	// both are for the user alone. Where they went is said at the end.
+	reportPath := sessionFile(t, cmd.Env, "rehearsal-report.md")
+	for _, p := range []string{ledgerPath, reportPath} {
+		if _, err := os.Stat(filepath.Join(workDir, filepath.Base(p))); !errors.Is(err, fs.ErrNotExist) {
+			t.Errorf("%s was written in the project folder (%v)", filepath.Base(p), err)
+		}
+		if info, err := os.Stat(p); err != nil || info.Mode().Perm() != 0o600 {
+			t.Errorf("%s: %v, %v; want a file only the user can read", p, info, err)
+		}
+		if !strings.Contains(string(out), p) {
+			t.Errorf("the output does not say where %s was saved:\n%s", filepath.Base(p), out)
+		}
 	}
 	var l ledger.Ledger
 	if err := json.Unmarshal(raw, &l); err != nil {

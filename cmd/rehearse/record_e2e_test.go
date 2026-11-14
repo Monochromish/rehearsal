@@ -97,7 +97,7 @@ func TestRecordedSessionVerifiesAndTamperingIsNamed(t *testing.T) {
 	}
 
 	// what the page and the report say about the record
-	raw, err := os.ReadFile(filepath.Join(r.workDir, "rehearsal-ledger.json"))
+	raw, err := os.ReadFile(filepath.Join(r.sessionDir(), "rehearsal-ledger.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +108,7 @@ func TestRecordedSessionVerifiesAndTamperingIsNamed(t *testing.T) {
 	if !l.Record.Verified || l.Record.Entries < 3 || l.ToolVersion != version {
 		t.Errorf("ledger record = %+v, tool version %q; want a verified record and version %s", l.Record, l.ToolVersion, version)
 	}
-	report, err := os.ReadFile(filepath.Join(r.workDir, "rehearsal-report.md"))
+	report, err := os.ReadFile(filepath.Join(r.sessionDir(), "rehearsal-report.md"))
 	if err != nil {
 		t.Fatal(err)
 	}

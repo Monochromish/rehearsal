@@ -461,7 +461,7 @@ func rehearse(opts options, command []string) (exitCode int, err error) {
 			return writeNotes(log, reviewer.model, recorders[0].FinalText())
 		})
 	}
-	cleanup("write the ledger", func() error { return report(log, workDir) })
+	cleanup("write the ledger", func() error { return report(log, sessionDir) })
 	if signer != nil {
 		cleanup("sign the record", func() error {
 			// Sealed first: an entry written after the signature would
@@ -697,7 +697,11 @@ func current(log *events.Log) (ledger.Ledger, error) {
 	return ledger.FromLog(log)
 }
 
-func report(log *events.Log, workDir string) error {
+// report prints the ledger and writes it, with the session report, in the
+// session's folder. They are not written in the project: an agent reads
+// what is in its working folder, and the ledger holds the user's own
+// details.
+func report(log *events.Log, sessionDir string) error {
 	l, err := current(log)
 	if err != nil {
 		return err
@@ -707,13 +711,14 @@ func report(log *events.Log, workDir string) error {
 	if err != nil {
 		return fmt.Errorf("encode the ledger: %w", err)
 	}
-	if err := os.WriteFile(filepath.Join(workDir, ledgerFile), append(data, '\n'), 0o644); err != nil {
+	ledgerPath, reportPath := filepath.Join(sessionDir, ledgerFile), filepath.Join(sessionDir, reportFile)
+	if err := os.WriteFile(ledgerPath, append(data, '\n'), 0o600); err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(workDir, reportFile), []byte(l.Markdown()), 0o644); err != nil {
+	if err := os.WriteFile(reportPath, []byte(l.Markdown()), 0o600); err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "\nSaved to %s and %s\n", ledgerFile, reportFile)
+	fmt.Fprintf(os.Stderr, "\nSaved:\n  %s\n  %s\n", underHome(ledgerPath), underHome(reportPath))
 	return nil
 }
 
@@ -771,6 +776,19 @@ func plantCanaryFile(workDir, word string) (remove func() error, err error) {
 		}
 		return os.Remove(path)
 	}, nil
+}
+
+// underHome writes a path inside the home folder with a ~ in place of
+// the folder, which is shorter and keeps the username off the screen.
+func underHome(path string) string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" || home == "/" {
+		return path
+	}
+	if rest, ok := strings.CutPrefix(path, home+string(filepath.Separator)); ok {
+		return "~" + string(filepath.Separator) + rest
+	}
+	return path
 }
 
 // stateDir holds the certificate authority and the session logs.

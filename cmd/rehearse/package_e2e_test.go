@@ -87,7 +87,7 @@ func TestPackageInstallsAreCheckedAgainstTheRegistry(t *testing.T) {
 	}
 
 	var l ledger.Ledger
-	data, err := os.ReadFile(filepath.Join(work, "rehearsal-ledger.json"))
+	data, err := os.ReadFile(sessionFile(t, cmd.Env, "rehearsal-ledger.json"))
 	if err != nil || json.Unmarshal(data, &l) != nil {
 		t.Fatalf("ledger: %v", err)
 	}
@@ -115,7 +115,7 @@ func TestPackageInstallsAreCheckedAgainstTheRegistry(t *testing.T) {
 	if asked != 3 {
 		t.Errorf("the ledger shows %d requests to the registry, want 3: %+v", asked, l.Servers)
 	}
-	report := read(t, filepath.Join(work, "rehearsal-report.md"))
+	report := read(t, sessionFile(t, cmd.Env, "rehearsal-report.md"))
 	if !strings.Contains(report, "## Packages the agent asked to install") || !strings.Contains(report, "high risk, stopped") {
 		t.Errorf("the report does not list the packages:\n%s", report)
 	}

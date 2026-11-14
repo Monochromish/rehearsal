@@ -188,7 +188,7 @@ func (s *session) finish() (int, ledger.Ledger) {
 	case <-time.After(60 * time.Second):
 		s.t.Fatalf("rehearse did not exit after the decision:\n%s", s.output)
 	}
-	raw, err := os.ReadFile(filepath.Join(s.workDir, "rehearsal-ledger.json"))
+	raw, err := os.ReadFile(sessionFile(s.t, s.cmd.Env, "rehearsal-ledger.json"))
 	if err != nil {
 		s.t.Fatalf("ledger file not written: %v\n%s", err, s.output)
 	}
