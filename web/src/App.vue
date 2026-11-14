@@ -1,34 +1,44 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { getLedger, subscribe } from './api'
-import type { Ledger, LogEvent, Subscription } from './api'
+import { applyApproved, discardAll, getHeld, getLedger, subscribe } from './api'
+import type { Held, Ledger, LogEvent, Subscription } from './api'
 import { palettes, preferredTheme } from './theme'
 import type { ThemeName } from './theme'
 import SummaryBar from './components/SummaryBar.vue'
 import ServerGroup from './components/ServerGroup.vue'
 import WatchList from './components/WatchList.vue'
+import DecisionPanel from './components/DecisionPanel.vue'
 
 const ledger = ref<Ledger | null>(null)
+const held = ref<Held | null>(null)
 const connected = ref(false)
 const ledgerProblem = ref('')
 const updateProblem = ref('')
-const problems = computed(() => [ledgerProblem.value, updateProblem.value].filter((p) => p !== ''))
+const decisionProblem = ref('')
+const sending = ref(false)
+const problems = computed(() =>
+  [ledgerProblem.value, updateProblem.value, decisionProblem.value].filter((p) => p !== ''),
+)
 const theme = ref<ThemeName>(preferredTheme())
 
 let subscription: Subscription | null = null
 let refreshTimer: number | undefined
 
-const ended = computed(() => ledger.value?.ended ?? false)
+const phase = computed(() => ledger.value?.phase ?? 'running')
 const agentName = computed(() => ledger.value?.command[0] ?? 'the agent')
 const providers = computed(() => (ledger.value?.servers ?? []).filter((s) => s.category === 'provider'))
 const others = computed(() => (ledger.value?.servers ?? []).filter((s) => s.category === 'other'))
+const showDecision = computed(() => held.value !== null && held.value.actions.length > 0 && phase.value !== 'running')
 
 const statusText = computed(() => {
-  if (ended.value) return 'Session ended. This is the final ledger.'
-  if (connected.value) return 'Watching live'
-  return 'Not connected'
+  if (phase.value === 'finished') return 'Session ended. This is the final ledger.'
+  if (!connected.value) return 'Not connected'
+  if (phase.value === 'reviewing') return 'The agent has finished. Reading what it tried to do.'
+  if (phase.value === 'deciding') return 'Waiting for your decision'
+  if (phase.value === 'applying') return 'Performing what you approved'
+  return 'Watching live'
 })
-const statusClass = computed(() => (connected.value && !ended.value ? 'status status-live' : 'status'))
+const statusClass = computed(() => (connected.value && phase.value !== 'finished' ? 'status status-live' : 'status'))
 
 function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
@@ -37,8 +47,16 @@ function describe(error: unknown): string {
 // Never rejects: a failure is shown on the page.
 async function refresh(): Promise<void> {
   try {
-    ledger.value = await getLedger()
+    const [nextLedger, nextHeld] = await Promise.all([getLedger(), getHeld()])
+    ledger.value = nextLedger
+    held.value = nextHeld
     ledgerProblem.value = ''
+    if (nextLedger.phase === 'finished') {
+      // rehearse stops serving shortly after this, so stop the browser
+      // from reconnecting
+      subscription?.close()
+      connected.value = false
+    }
   } catch (e: unknown) {
     ledgerProblem.value = `Could not read the ledger: ${describe(e)}`
   }
@@ -58,13 +76,24 @@ function onEvent(event: LogEvent): void {
     refreshSoon()
     return
   }
-  // rehearse stops serving right after this event, so read the final
-  // ledger now and stop the browser from reconnecting
+  // with nothing held, rehearse exits right after this event
   window.clearTimeout(refreshTimer)
   refreshTimer = undefined
-  subscription?.close()
-  connected.value = false
   void refresh()
+}
+
+// Never rejects: a decision that could not be delivered is shown on the
+// page and the buttons work again.
+async function send(decision: () => Promise<void>): Promise<void> {
+  sending.value = true
+  decisionProblem.value = ''
+  try {
+    await decision()
+  } catch (e: unknown) {
+    decisionProblem.value = `Your decision did not reach Rehearsal, so nothing was done: ${describe(e)}`
+  }
+  sending.value = false
+  await refresh()
 }
 
 function toggleTheme(): void {
@@ -116,7 +145,14 @@ onUnmounted(() => {
       <div v-if="ledger === null && problems.length === 0" class="loading">Waiting for the ledger…</div>
 
       <div v-if="ledger !== null" class="body">
-        <SummaryBar :totals="ledger.totals" />
+        <DecisionPanel
+          v-if="showDecision && held !== null"
+          :held="held"
+          :busy="sending"
+          @apply="(approve) => void send(() => applyApproved(approve))"
+          @discard="void send(discardAll)"
+        />
+        <SummaryBar :totals="ledger.totals" :holding="ledger.holding" />
         <ServerGroup
           title="Model provider"
           hint="The AI service the agent is meant to talk to."

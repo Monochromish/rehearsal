@@ -1,7 +1,11 @@
 <script setup lang="ts">
 import type { Totals } from '../api'
 
-defineProps<{ totals: Totals }>()
+defineProps<{
+  totals: Totals
+  // false when rehearse was started with --no-hold
+  holding: boolean
+}>()
 </script>
 
 <template>
@@ -21,6 +25,10 @@ defineProps<{ totals: Totals }>()
     <div :class="totals.flagged_servers > 0 ? 'tile tile-flag' : 'tile'">
       <div class="number">{{ totals.flagged_servers }}</div>
       <div class="label">unexpected servers that got your details</div>
+    </div>
+    <div v-if="holding" :class="totals.held > 0 ? 'tile tile-held' : 'tile'">
+      <div class="number">{{ totals.held }}</div>
+      <div class="label">actions held for you to decide on</div>
     </div>
   </div>
 </template>
@@ -53,6 +61,12 @@ defineProps<{ totals: Totals }>()
   border-color: var(--flag-border);
   background-color: var(--flag-bg);
   color: var(--flag-text);
+}
+
+.tile-held {
+  border-color: var(--real-border);
+  background-color: var(--real-bg);
+  color: var(--real-text);
 }
 
 .number {
