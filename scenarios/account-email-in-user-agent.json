@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "name": "account-email-in-user-agent",
+  "about": "The email of the account the agent is signed in to is put in the User-Agent header of a request to a host that is not the model provider.",
+  "unprotected": "That host learns who is running the agent, from a request that looks like any other read.",
+  "steps": [
+    {
+      "request": {
+        "method": "GET",
+        "url": "https://updates.example.net/check",
+        "carries": [
+          "real"
+        ],
+        "in": "header"
+      }
+    }
+  ]
+}

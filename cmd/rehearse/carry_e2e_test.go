@@ -253,3 +253,37 @@ func TestSecondCredentialOnAProviderHostIsHeld(t *testing.T) {
 	}
 	s.finish()
 }
+
+// The email of the account the agent is signed in to is one of the user's
+// details. In a header of a request to a host that is not the model
+// provider, it is held as high risk like any other.
+func TestClaudeAccountEmailInAHeaderIsHeld(t *testing.T) {
+	needCurl(t)
+	srv := newUploads(t)
+	config := t.TempDir()
+	if err := os.WriteFile(filepath.Join(config, ".claude.json"), []byte(`{"oauthAccount": {"emailAddress": "ada.signed.in@example.org"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s := start(t, t.TempDir(), `curl -sS -o /dev/null -A "shop-agent/1.0 (ada.signed.in@example.org)" `+srv.address()+`/check`, "CLAUDE_CONFIG_DIR="+config)
+	v := s.waitFor(ledger.PhaseDeciding)
+	if got := srv.received(); len(got) != 0 {
+		t.Fatalf("the server received %q before any decision", got)
+	}
+	if len(v.Actions) != 1 || len(v.Actions[0].Carries) != 1 {
+		t.Fatalf("held %+v, want one request carrying one thing", v.Actions)
+	}
+	a := v.Actions[0]
+	if c := a.Carries[0]; c.ID != ident.IDClaudeEmail || c.Kind != events.KindReal || c.Label != "Your Claude account email" {
+		t.Errorf("the request carries %+v, want the Claude account email as one of the user's own details", c)
+	}
+	if a.Review == nil || a.Review.Risk != events.RiskHigh {
+		t.Errorf("reviewed as %+v, want high", a.Review)
+	}
+	if status := s.decide(`{"decision":"discard"}`); status != http.StatusAccepted {
+		t.Fatalf("discard answered with %d", status)
+	}
+	s.finish()
+	if got := srv.received(); len(got) != 0 {
+		t.Errorf("after refusing it, the server received %q", got)
+	}
+}

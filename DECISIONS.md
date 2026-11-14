@@ -79,6 +79,13 @@ are given to the wrapped command as `REHEARSAL_CANARY_EMAIL` and
   fails, the raw bytes are searched.
 - If your git name, git email, username or computer name can't be read,
   `rehearse` prints a warning and carries on without that one.
+- The email of the account Claude Code is signed in to is read from that
+  program's own settings file (`.claude.json` in the home folder, or in the
+  folder `CLAUDE_CONFIG_DIR` names), field `oauthAccount.emailAddress`. It
+  is watched for like the git email. With no such file or field there is
+  nothing to watch for and nothing is said. It matters because the agent
+  program knows this address and you may not expect it to: a request to
+  some other host that names the account says who is running the agent.
 
 ## What is stored
 
@@ -528,7 +535,8 @@ doesn't check the signature, which is made after the page's last update.
 `rehearse export` prints every entry byte for byte as it was hashed, so
 the chain can be recomputed from the export alone. That includes the first
 entry, which holds the values of your own details that were watched for
-(git name and email, username, computer name). An export that blanked them
+(git name and email, username, computer name, Claude account email). An
+export that blanked them
 could not be checked, and a record that can't be checked is not worth
 exporting.
 

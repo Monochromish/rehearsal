@@ -119,7 +119,7 @@ recomputed from the export alone: `hash` is the SHA-256 of `seq`, `time`,
 `type`, `prev` and `data`, joined by newlines.
 
 The first entry (`session_started`) holds the values of your own details
-that were being watched for: git name and email, username and computer
+that were being watched for: git name and email, Claude account email, username and computer
 name. They are in the export too. Keep that in mind before sending it
 anywhere.
 

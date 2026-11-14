@@ -55,7 +55,9 @@ sh agent.sh
 ```
 
 `agent.sh` is a script standing in for an agent that obeyed the hidden
-instruction. Run bare, it posts `.env` to the inbox, deletes the cloud
+instruction. Run bare, it posts `.env` to the inbox, sends the inbox the
+email of the Claude account signed in on this computer (in a request
+header, and only if there is one), deletes the cloud
 host's production database, overwrites the remote's `main` and, if npm is
 installed, installs the package. (Run `sh demo/stop.sh` and
 `sh demo/start.sh` to reset.)
@@ -68,7 +70,8 @@ rehearse sh agent.sh
 
 The script reports that everything went fine. The inbox stays empty and the
 database stays where it is. The page lists what was held: the post and the
-`GET` that carried the key from `.env`, the `DELETE`, and the force push
+`GET` that carried the key from `.env`, the request with your Claude
+account email in a header, the `DELETE`, and the force push
 with `.env` in it. The install was stopped before it ran. Nothing happens
 until you decide.
 

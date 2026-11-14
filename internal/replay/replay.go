@@ -54,6 +54,9 @@ type Request struct {
 	ContentType string `json:"content_type,omitempty"`
 	// the kinds of watched value it carried: real, canary, secret
 	Carries []string `json:"carries,omitempty"`
+	// where it carried them. Empty means the address for a GET and the
+	// body otherwise; "header" means a request header.
+	In string `json:"in,omitempty"`
 	// a name for the login it used, when it went to the model provider.
 	// Two requests with different names used different logins.
 	Credential string `json:"credential,omitempty"`
@@ -94,6 +97,9 @@ type Package struct {
 	Scripts  bool `json:"scripts,omitempty"`
 }
 
+// InHeader is the value of Request.In for something carried in a header.
+const InHeader = "header"
+
 // Parse reads a recording and checks that it can be played.
 func Parse(data []byte) (Recording, error) {
 	var rec Recording
@@ -123,6 +129,9 @@ func Parse(data []byte) (Recording, error) {
 		}
 		if r := s.Request; r != nil && (r.Method == "" || !strings.Contains(r.URL, "://") || strings.Contains(r.URL, "?")) {
 			return rec, fmt.Errorf("step %d: a request needs a method and an address with no query string", i+1)
+		}
+		if r := s.Request; r != nil && !slices.Contains([]string{"", InHeader}, r.In) {
+			return rec, fmt.Errorf("step %d: %q is not a place a request can carry something", i+1, r.In)
 		}
 	}
 	return rec, nil
@@ -314,12 +323,18 @@ func (p Player) request(r Request, res *Result) error {
 	}
 	address := r.URL
 	var body []byte
+	inBody := carried
+	if r.In == InHeader {
+		// the header a program most often puts something about itself in
+		header.Set("User-Agent", "agent/1.0 ("+strings.Join(carried, "; ")+")")
+		carried, inBody = nil, nil
+	}
 	if slices.Contains([]string{http.MethodGet, http.MethodHead}, r.Method) {
 		if len(carried) > 0 {
 			address += "?d=" + strings.Join(carried, ",")
 		}
 	} else {
-		body = []byte(strings.Join(carried, " "))
+		body = []byte(strings.Join(inBody, " "))
 		if pad := int(r.Bytes) - len(body); pad > 0 {
 			body = append(body, []byte(strings.Repeat(" ", pad))...)
 		}

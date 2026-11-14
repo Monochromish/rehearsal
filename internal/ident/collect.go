@@ -2,11 +2,14 @@ package ident
 
 import (
 	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"os/user"
+	"path/filepath"
 	"strings"
 
 	"rehearsal/internal/events"
@@ -17,6 +20,7 @@ const (
 	IDGitName      = "git-name"
 	IDUsername     = "os-username"
 	IDHostname     = "hostname"
+	IDClaudeEmail  = "claude-email"
 	IDCanaryEmail  = "canary-email"
 	IDCanaryAPIKey = "canary-api-key"
 	IDCanaryWord   = "canary-word"
@@ -52,7 +56,43 @@ func CollectReal(workDir string) ([]events.Identifier, error) {
 	host, err := os.Hostname()
 	add(IDHostname, "Your computer's name", host, err)
 
+	account, err := claudeAccountEmail()
+	add(IDClaudeEmail, "Your Claude account email", account, err)
+
 	return out, errors.Join(failed...)
+}
+
+// claudeAccountEmail is the email of the account Claude Code is signed in
+// to, which it keeps in its own settings file: .claude.json in the home
+// folder, or in the folder CLAUDE_CONFIG_DIR names. It is "" with no error
+// when the file or the field is not there, which is the case for anyone
+// who doesn't use Claude Code or isn't signed in.
+func claudeAccountEmail() (string, error) {
+	dir := os.Getenv("CLAUDE_CONFIG_DIR")
+	if dir == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", nil // no home folder, so no settings file in it
+		}
+		dir = home
+	}
+	data, err := os.ReadFile(filepath.Join(dir, ".claude.json"))
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("read Claude Code's settings: %w", err)
+	}
+	var settings struct {
+		Account struct {
+			Email string `json:"emailAddress"`
+		} `json:"oauthAccount"`
+	}
+	if err := json.Unmarshal(data, &settings); err != nil {
+		// the message may quote the file, so only the fact is passed on
+		return "", errors.New("the settings file of Claude Code is not readable as JSON")
+	}
+	return settings.Account.Email, nil
 }
 
 func gitConfig(workDir, key string) (string, error) {

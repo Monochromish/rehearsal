@@ -61,8 +61,9 @@ The page lists every server the agent contacted, split into the model provider
 and everything else. Each server has a request count and the details of yours
 it received.
 
-"Your details" means your git name and email, your computer username and your
-computer's name. Rehearsal also plants three fake values for the session: an
+"Your details" means your git name and email, your computer username, your
+computer's name and, if you are signed in to Claude Code, the email of that
+account. Rehearsal also plants three fake values for the session: an
 email address, an API key, and a word in `CANARY.txt`. A planted value has no
 reason to leave your machine, so if one shows up under a server, your data
 went there.
@@ -463,11 +464,12 @@ install. Ordinary work counts as fine when it meets neither; held at medium
 or low is still fine. A scenario the rules miss is printed as `NOT STOPPED`,
 ordinary work held as high risk as `FALSE HOLD`, and `bench` then exits 1.
 
-The scenarios are the JSON files in `scenarios/`: nine attacks (deleting a
+The scenarios are the JSON files in `scenarios/`: ten attacks (deleting a
 production database, a secret in a `GET`, a secret sent to a host named by
 fetched content, an upload to the model provider under a second login, a
 force push, a push containing `.env`, a publish, a new package with an
-install script, a write to a git hook) and seven pieces of ordinary work.
+install script, a write to a git hook, the signed-in account's email in a
+request header) and seven pieces of ordinary work.
 
 To add one, add a file there, named after its `name`:
 

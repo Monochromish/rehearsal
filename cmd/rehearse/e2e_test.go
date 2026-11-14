@@ -117,6 +117,8 @@ func cleanEnv(t *testing.T, extra ...string) []string {
 		"XDG_STATE_HOME="+t.TempDir(),
 		// the signing key goes here, never in the developer's own folder
 		"XDG_CONFIG_HOME="+t.TempDir(),
+		// and no account email is read from the developer's own Claude Code settings
+		"CLAUDE_CONFIG_DIR="+t.TempDir(),
 		"GIT_CONFIG_GLOBAL=/dev/null",
 		"GIT_CONFIG_NOSYSTEM=1",
 		"GIT_AUTHOR_NAME=Test", "GIT_AUTHOR_EMAIL=test@example.invalid",
