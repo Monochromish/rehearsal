@@ -1,6 +1,21 @@
-// Colour means risk only: neutral greys and three state colours. They are
-// defined here once, handed to the root element as CSS variables, and used
-// nowhere else by value, so a different renderer can read the same palettes.
+// Every colour the page uses, defined here once, handed to the root
+// element as CSS variables and used nowhere else by value, so a different
+// renderer can read the same palettes.
+//
+// What each is for:
+//   --window, --panel, --raised  surfaces. The page is one panel; --raised is
+//                                for what sits on it (a command, a diff).
+//   --text, --secondary          words. A button is ink: --text behind,
+//                                --panel for its label.
+//   --hairline                   decoration only. An edge that has to be
+//                                seen, such as a button's outline, is
+//                                --secondary.
+//   --accent                     focus rings and links, and nothing else. It
+//                                is close to the text colour, so a link is
+//                                always underlined as well.
+//   --high, --medium, --allowed  risk, and only on the words High, Medium
+//                                and Allowed. Colour never carries a
+//                                meaning by itself.
 
 export type ThemeName = 'light' | 'dark'
 
@@ -8,24 +23,28 @@ export type Palette = Record<string, string>
 
 export const palettes: Record<ThemeName, Palette> = {
   light: {
-    '--bg': '#FFFFFF',
-    '--sunken': '#F5F5F4',
-    '--text': '#1A1A1A',
-    '--secondary': '#5E5E5E',
-    '--hairline': '#E2E2E0',
-    '--high': '#B3261E',
-    '--medium': '#8A5300',
-    '--allowed': '#1B6E33',
+    '--window': '#e8eaec',
+    '--panel': '#fcfcfd',
+    '--raised': '#e1e3e5',
+    '--text': '#171a1d',
+    '--secondary': '#44474b',
+    '--hairline': '#cdcfd2',
+    '--accent': '#1f3d69',
+    '--high': '#920a11',
+    '--medium': '#8b5002',
+    '--allowed': '#0b6f49',
   },
   dark: {
-    '--bg': '#151515',
-    '--sunken': '#1D1D1D',
-    '--text': '#EDEDED',
-    '--secondary': '#A6A6A6',
-    '--hairline': '#2F2F2F',
-    '--high': '#FF8A80',
-    '--medium': '#E8B04A',
-    '--allowed': '#6FCF8A',
+    '--window': '#0c0d0f',
+    '--panel': '#161719',
+    '--raised': '#252729',
+    '--text': '#e8e9eb',
+    '--secondary': '#b2b4b8',
+    '--hairline': '#343538',
+    '--accent': '#b5d0f5',
+    '--high': '#f76565',
+    '--medium': '#eab946',
+    '--allowed': '#82e2ad',
   },
 }
 

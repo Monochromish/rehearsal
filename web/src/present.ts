@@ -133,8 +133,8 @@ export interface Outcome {
 /** What became of an action, once decided. Null while it is undecided. */
 export function outcomeOf(a: HeldAction): Outcome | null {
   if (a.outcome === 'applied') return { word: 'Allowed', tone: 'allowed' }
-  if (a.outcome === 'failed') return { word: 'Failed', tone: 'high' }
-  if (a.outcome === 'not_applied') return { word: 'Not run', tone: 'medium' }
+  if (a.outcome === 'failed') return { word: 'Failed', tone: 'plain' }
+  if (a.outcome === 'not_applied') return { word: 'Not run', tone: 'plain' }
   if (a.decision === 'refused') return { word: 'Refused', tone: 'plain' }
   if (a.decision === 'approved') return { word: 'Waiting', tone: 'plain' }
   return null

@@ -147,7 +147,7 @@ async function copy(): Promise<void> {
         </div>
         <div class="destination">{{ registryOf(p.manager) }}</div>
         <div class="data">Nothing: it did not run</div>
-        <div class="decision decision-high">Stopped</div>
+        <div class="decision decision-plain">Stopped</div>
       </div>
     </div>
 
@@ -166,7 +166,7 @@ async function copy(): Promise<void> {
       <div v-if="commandsOpen" class="block">
         <div v-for="(c, i) in r.commands" :key="i">{{ c.text }} ({{ c.failed === null ? 'result not reported' : c.failed ? 'reported an error' : 'ok' }})</div>
       </div>
-      <div v-for="flag in r.flags" :key="flag" class="fact fact-high">Worth a second look: {{ flag }}</div>
+      <div v-for="flag in r.flags" :key="flag" class="fact fact-flag">Worth a second look: {{ flag }}</div>
       <div v-for="(p, i) in ran" :key="i" class="fact">An {{ p.manager }} install went ahead: {{ p.facts }}.</div>
       <div v-if="ledger.policy.allowed > 0" class="fact">
         {{ ledger.policy.allowed === 1 ? '1 action was' : `${ledger.policy.allowed} actions were` }} let through by a rule in your policy and not held.
@@ -302,14 +302,6 @@ async function copy(): Promise<void> {
   text-align: right;
 }
 
-.decision-high {
-  color: var(--high);
-}
-
-.decision-medium {
-  color: var(--medium);
-}
-
 .decision-allowed {
   color: var(--allowed);
 }
@@ -336,8 +328,8 @@ async function copy(): Promise<void> {
   font-size: 16px;
 }
 
-.fact-high {
-  color: var(--high);
+.fact-flag {
+  font-weight: 600;
 }
 
 .aside {
@@ -365,7 +357,8 @@ async function copy(): Promise<void> {
 }
 
 .broken {
-  color: var(--high);
+  color: var(--text);
+  font-weight: 600;
 }
 
 .links {
@@ -382,7 +375,7 @@ async function copy(): Promise<void> {
   padding: 0;
   border-width: 0;
   background-color: transparent;
-  color: var(--text);
+  color: var(--accent);
   font-family: inherit;
   font-size: 16px;
   text-decoration: underline;
@@ -390,13 +383,13 @@ async function copy(): Promise<void> {
 }
 
 .link:focus-visible {
-  outline: 2px solid var(--text);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
 .copied {
   font-size: 16px;
-  color: var(--allowed);
+  color: var(--secondary);
 }
 
 .manual {
@@ -409,7 +402,7 @@ async function copy(): Promise<void> {
   margin-top: 8px;
   padding: 8px 12px;
   border-radius: 4px;
-  background-color: var(--sunken);
+  background-color: var(--raised);
   font-family: ui-monospace, 'Cascadia Mono', 'SF Mono', Menlo, Consolas, monospace;
   font-size: 14px;
   white-space: pre-wrap;

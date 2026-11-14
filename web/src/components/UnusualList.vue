@@ -63,7 +63,7 @@ const lines = computed<Line[]>(() => [
         <div class="title">{{ line.title }}</div>
         <div class="route">{{ line.route }}</div>
       </div>
-      <div :class="line.word === 'Held' ? 'state state-medium' : 'state state-high'">{{ line.word }}</div>
+      <div class="state">{{ line.word }}</div>
     </div>
   </div>
 </template>
@@ -134,11 +134,4 @@ const lines = computed<Line[]>(() => [
   text-align: right;
 }
 
-.state-high {
-  color: var(--high);
-}
-
-.state-medium {
-  color: var(--medium);
-}
 </style>

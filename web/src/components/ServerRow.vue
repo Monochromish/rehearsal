@@ -13,7 +13,7 @@ defineProps<{ server: Server }>()
       <IdentifierTag v-for="item in server.received" :key="item.id" :item="item" />
     </div>
     <div class="count">{{ server.requests === 1 ? '1 request' : `${server.requests} requests` }}</div>
-    <div :class="server.flagged ? 'state state-high' : 'state'">{{ server.flagged ? 'Noted' : 'Normal' }}</div>
+    <div :class="server.flagged ? 'state state-noted' : 'state'">{{ server.flagged ? 'Noted' : 'Normal' }}</div>
   </div>
 </template>
 
@@ -67,7 +67,7 @@ defineProps<{ server: Server }>()
   text-align: right;
 }
 
-.state-high {
-  color: var(--high);
+.state-noted {
+  color: var(--text);
 }
 </style>

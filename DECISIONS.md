@@ -1160,3 +1160,39 @@ other code and kept out of this repository. Everything it shows comes
 over the local HTTP API, which is documented and tested here, so the page,
 the window and anything else can be front ends on equal terms, and the
 window can run on a different system from `rehearse`.
+
+## One palette, and what each colour may be used for
+
+The page's colours are ten named values for each theme, defined once in
+`web/src/theme.ts`: three surfaces (window, panel, raised), two text tones,
+a hairline, one accent and three risk colours. Nothing else is a colour.
+
+**Each colour has one job.** The accent is for focus rings and links. It is
+a dark blue close to the text colour, so it cannot mark a link by colour
+alone, and every link is underlined as well. A button is ink: the text colour behind, the panel colour for its label. The
+hairline is decoration; an edge that has to be seen, such as a button's
+outline, is the secondary text tone.
+
+**Risk colours belong to three words.** Red, amber and green appear only
+on "High", "Medium" and "Allowed". A warning, an error, a failed action or
+a server that received something is said in words at a heavier weight and
+is not coloured. Before this, red also marked warnings and failures, which
+made it mean "look here" as well as "high risk", and a reader who cannot
+tell red from green lost both. Colour never carries a meaning by itself.
+
+**Measured.** Contrast against the panel and against the raised tone, the
+two surfaces text sits on:
+
+| | Light, panel | Light, raised | Dark, panel | Dark, raised |
+|---|---|---|---|---|
+| Primary text | 17.04 | 13.58 | 14.77 | 12.34 |
+| Secondary text | 9.11 | 7.26 | 8.64 | 7.22 |
+| Accent | 10.61 | 8.46 | 11.37 | 9.50 |
+| High | 9.01 | 7.18 | 5.98 | 5.00 |
+| Medium | 6.31 | 5.03 | 9.85 | 8.23 |
+| Allowed | 6.05 | 4.82 | 11.47 | 9.59 |
+
+Every pair is above 4.5 to 1, and secondary text in the light theme is
+above 7 to 1. The values are written as hex. The page hands them to the
+browser as custom properties, where a colour the browser cannot read has
+no fallback, so a second notation would add a way to fail and no benefit.

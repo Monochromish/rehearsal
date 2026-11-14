@@ -181,7 +181,7 @@ defineExpose({ toggleCommand: () => (open.value = !open.value) })
 }
 
 .box:focus-visible {
-  outline: 2px solid var(--text);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
@@ -215,7 +215,7 @@ defineExpose({ toggleCommand: () => (open.value = !open.value) })
 .warning {
   margin-top: 4px;
   font-size: 16px;
-  color: var(--high);
+  font-weight: 600;
 }
 
 .link {
@@ -225,7 +225,7 @@ defineExpose({ toggleCommand: () => (open.value = !open.value) })
   padding: 0;
   border-width: 0;
   background-color: transparent;
-  color: var(--text);
+  color: var(--accent);
   font-family: inherit;
   font-size: 14px;
   text-decoration: underline;
@@ -233,7 +233,7 @@ defineExpose({ toggleCommand: () => (open.value = !open.value) })
 }
 
 .link:focus-visible {
-  outline: 2px solid var(--text);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
@@ -243,7 +243,7 @@ defineExpose({ toggleCommand: () => (open.value = !open.value) })
   margin-top: 8px;
   padding: 8px 12px;
   border-radius: 4px;
-  background-color: var(--sunken);
+  background-color: var(--raised);
   font-family: ui-monospace, 'Cascadia Mono', 'SF Mono', Menlo, Consolas, monospace;
   font-size: 14px;
   white-space: pre-wrap;

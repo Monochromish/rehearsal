@@ -220,7 +220,7 @@ onUnmounted(() => {
   min-height: 100vh;
   box-sizing: border-box;
   padding: 48px 24px;
-  background-color: var(--bg);
+  background-color: var(--panel);
   color: var(--text);
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   font-size: 18px;
@@ -261,7 +261,7 @@ onUnmounted(() => {
   padding-top: 12px;
   border-top-width: 1px;
   border-top-style: solid;
-  border-top-color: var(--high);
+  border-top-color: var(--secondary);
 }
 
 .problem-heading {
@@ -269,7 +269,6 @@ onUnmounted(() => {
   margin-bottom: 8px;
   font-size: 18px;
   font-weight: 600;
-  color: var(--high);
 }
 
 .problem {
@@ -303,7 +302,7 @@ onUnmounted(() => {
   padding: 0;
   border-width: 0;
   background-color: transparent;
-  color: var(--text);
+  color: var(--accent);
   font-family: inherit;
   font-size: 16px;
   text-decoration: underline;
@@ -311,7 +310,7 @@ onUnmounted(() => {
 }
 
 .link:focus-visible {
-  outline: 2px solid var(--text);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 

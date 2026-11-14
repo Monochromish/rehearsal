@@ -250,7 +250,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
   padding: 0;
   border-width: 0;
   background-color: transparent;
-  color: var(--text);
+  color: var(--accent);
   font-family: inherit;
   font-size: 18px;
   text-decoration: underline;
@@ -258,7 +258,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
 }
 
 .link:focus-visible {
-  outline: 2px solid var(--text);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
@@ -299,7 +299,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
 }
 
 .box:focus-visible {
-  outline: 2px solid var(--text);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
@@ -348,7 +348,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
   border-color: var(--text);
   border-radius: 4px;
   background-color: var(--text);
-  color: var(--bg);
+  color: var(--panel);
   font-family: inherit;
   font-size: 18px;
   font-weight: 600;
@@ -361,7 +361,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
   padding: 8px 16px;
   border-width: 1px;
   border-style: solid;
-  border-color: var(--hairline);
+  border-color: var(--secondary);
   border-radius: 4px;
   background-color: transparent;
   color: var(--text);
@@ -371,17 +371,17 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
 }
 
 .primary:focus-visible {
-  outline: 2px solid var(--text);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
 .plain:focus-visible {
-  outline: 2px solid var(--text);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
 .primary:disabled {
-  border-color: var(--hairline);
+  border-color: var(--secondary);
   background-color: transparent;
   color: var(--secondary);
   cursor: default;
