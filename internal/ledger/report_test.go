@@ -1,6 +1,7 @@
 package ledger
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -82,7 +83,7 @@ func TestReport(t *testing.T) {
 		"3 requests were sent before your first input reached the agent",
 		"- big-model: 3 requests\n",
 		"- small-model: 1 request (not the main model of this session)",
-		"- Input: 150", "- Written to cache: not available", "served from cache: 85%",
+		"- Input: 150", "served from cache: 85%",
 		"- `go test ./...` (reported an error)", "- `rm -rf build` (result not reported)",
 		"Worth a second look:", "Nothing was held.",
 	} {
@@ -90,9 +91,15 @@ func TestReport(t *testing.T) {
 			t.Errorf("report is missing %q:\n%s", want, md)
 		}
 	}
+	// the one count the provider did not report is left out, not shown as zero
+	if strings.Contains(md, "Written to cache") || strings.Contains(md, "not available") {
+		t.Errorf("report shows a figure that was not read:\n%s", md)
+	}
 }
 
-func TestReportSaysNotAvailable(t *testing.T) {
+// A figure that could not be read is left out, with its heading. It is
+// never shown as zero and never as a line saying it is not available.
+func TestReportLeavesOutWhatCouldNotBeRead(t *testing.T) {
 	evs := log(t,
 		events.TypeSessionStarted, events.SessionStarted{Command: []string{"agent"}, InputWatched: false},
 		events.TypeRequest, events.Request{ID: "r1", Host: "api.provider.test", Category: events.CategoryProvider, RequestBytes: 10},
@@ -107,16 +114,17 @@ func TestReportSaysNotAvailable(t *testing.T) {
 		t.Errorf("report = %+v, want nothing known about commands, models, tokens or input", r)
 	}
 	md := l.Markdown()
-	if strings.Count(md, "not available")+strings.Count(md, "Not available") != 9 {
-		t.Errorf("want nine \"not available\" (the summary's model, input, models, five token lines, commands), got:\n%s", md)
-	}
-	for _, wrong := range []string{"Input: 0", "Output: 0", "0%", "It ran no shell commands"} {
+	for _, wrong := range []string{
+		"not available", "Not available", "Input: 0", "Output: 0", "0%", "It ran no shell commands",
+		"## Before you pressed a key", "## Models that saw your session", "## Tokens", "## What the agent did",
+	} {
 		if strings.Contains(md, wrong) {
-			t.Errorf("report shows %q where the figure is unknown", wrong)
+			t.Errorf("report shows %q where the figure is unknown:\n%s", wrong, md)
 		}
 	}
-	if !strings.Contains(l.Summary(), "Which model it used is not available.") {
-		t.Errorf("summary = %q, want it to say the model is not available", l.Summary())
+	// what was read is still there
+	if !strings.Contains(md, "## What left your computer") || !strings.Contains(md, "api.provider.test") {
+		t.Errorf("report lost the part that was read:\n%s", md)
 	}
 }
 
@@ -168,6 +176,92 @@ func TestIntegrityPatterns(t *testing.T) {
 		}
 		if got := destructive.MatchString(tt.command); got != tt.destructive {
 			t.Errorf("%q: destructive = %t, want %t", tt.command, got, tt.destructive)
+		}
+	}
+}
+
+// "Content read from other servers" is what the agent fetched. The shapes
+// below are the ones a real session logged: its own telemetry and update
+// check, and Rehearsal looking a package up.
+func TestOnlyWhatTheAgentFetchedIsListedAsReadContent(t *testing.T) {
+	get := func(id, host, path string) events.Request {
+		return events.Request{ID: id, Host: host, Method: "GET", Path: path, Category: events.CategoryOther}
+	}
+	evs := log(t,
+		events.TypeSessionStarted, events.SessionStarted{Command: []string{"agent"}},
+		events.TypeRequest, get("r1", "downloads.agent.test", "/releases/latest"),
+		events.TypeOutsideContent, events.OutsideContent{RequestID: "r1", Host: "downloads.agent.test", Background: true},
+		events.TypeRequest, events.Request{ID: "r2", Host: "telemetry.test", Method: "POST", Path: "/api/v2/logs", Category: events.CategoryOther},
+		events.TypeOutsideContent, events.OutsideContent{RequestID: "r2", Host: "telemetry.test"},
+		events.TypeRequest, get("r3", "registry.test", "/shop-utilz"),
+		events.TypeOutsideContent, events.OutsideContent{RequestID: "r3", Host: "registry.test"},
+		events.TypePackageChecked, events.PackageChecked{Manager: "npm", Name: "shop-utilz", Risk: events.RiskHigh, Facts: "published 9 hours ago", Blocked: true},
+		events.TypeRequest, get("r4", "registry.test", "/@scope%2fname"),
+		events.TypeOutsideContent, events.OutsideContent{RequestID: "r4", Host: "registry.test"},
+		events.TypePackageChecked, events.PackageChecked{Manager: "npm", Name: "@scope/name", Risk: events.RiskLow, Facts: "published 3 years ago"},
+		events.TypeRequest, get("r5", "pypi.test", "/pypi/requests/json"),
+		events.TypeOutsideContent, events.OutsideContent{RequestID: "r5", Host: "pypi.test"},
+		events.TypePackageChecked, events.PackageChecked{Manager: "pip", Name: "requests", Risk: events.RiskLow, Facts: "published 2 years ago"},
+		events.TypeRequest, get("r6", "docs.test", "/setup"),
+		events.TypeOutsideContent, events.OutsideContent{RequestID: "r6", Host: "docs.test", Comments: 1, HiddenExcerpt: "do this first"},
+		events.TypeRequest, get("r7", "registry.test", "/left-pad"),
+		events.TypeOutsideContent, events.OutsideContent{RequestID: "r7", Host: "registry.test"},
+		events.TypeSessionEnded, events.SessionEnded{},
+	)
+	l, err := Build(evs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// docs.test is a page the agent fetched, and so is a registry page that
+	// no package check asked for
+	want := []OutsideSource{
+		{Host: "docs.test", Reads: 1, Hidden: 1, HiddenExcerpt: "do this first"},
+		{Host: "registry.test", Reads: 1},
+	}
+	if !reflect.DeepEqual(l.Outside, want) {
+		t.Errorf("outside = %+v\nwant      %+v", l.Outside, want)
+	}
+}
+
+func TestClaimsNothingBearsOnAreNotShown(t *testing.T) {
+	notes := func(claims ...events.ReportClaim) string {
+		evs := log(t,
+			events.TypeSessionStarted, events.SessionStarted{Command: []string{"agent"}},
+			events.TypeReportNotes, events.ReportNotes{ClaimsChecked: true, Claims: claims},
+			events.TypeSessionEnded, events.SessionEnded{},
+		)
+		l, err := Build(evs)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return l.Markdown()
+	}
+	none := events.ReportClaim{Claim: "I tidied the notes", Verdict: "nothing bears on it"}
+	if md := notes(none); strings.Contains(md, "Claimed versus observed") || strings.Contains(md, "tidied") {
+		t.Errorf("a report with no claim to show still has the section:\n%s", md)
+	}
+	md := notes(none, events.ReportClaim{Claim: "All tests pass", Verdict: "contradicted", Command: "go test ./..."})
+	if !strings.Contains(md, "## Claimed versus observed") || !strings.Contains(md, `"All tests pass": contradicted`) || strings.Contains(md, "tidied") {
+		t.Errorf("want only the contradicted claim under its heading:\n%s", md)
+	}
+}
+
+func TestAnUnsignedRecordSaysSo(t *testing.T) {
+	for _, unsigned := range []bool{false, true} {
+		evs := log(t,
+			events.TypeSessionStarted, events.SessionStarted{Command: []string{"agent"}, Unsigned: unsigned},
+			events.TypeSessionEnded, events.SessionEnded{},
+		)
+		l, err := Build(evs)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if l.Record.Unsigned != unsigned {
+			t.Errorf("record unsigned = %v, want %v", l.Record.Unsigned, unsigned)
+		}
+		l.Record.Verified, l.Record.Entries = true, 2 // as FromLog would find
+		if md := l.Markdown(); strings.Contains(md, "The record is unsigned") != unsigned {
+			t.Errorf("unsigned %v, but the report's record section reads:\n%s", unsigned, md[strings.Index(md, "## Record"):])
 		}
 	}
 }

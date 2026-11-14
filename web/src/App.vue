@@ -216,6 +216,7 @@ onUnmounted(() => {
 .page {
   display: flex;
   flex-direction: column;
+  align-items: center;
   min-height: 100vh;
   box-sizing: border-box;
   padding: 48px 24px;

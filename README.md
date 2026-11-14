@@ -167,15 +167,24 @@ observed, and only that:
 - Content read from other servers, with counts of hidden text.
 - Held actions and what was decided.
 
-A figure that could not be read says "not available". It is never shown as
-zero. Commands and token counts are read from the Anthropic Messages format
-only; other providers' sessions show "not available" for those.
+A figure that could not be read is left out, with its heading. It is never
+shown as zero. Commands and token counts are read from the Anthropic Messages
+format only, so other providers' sessions have no such lines.
 
-With a local model, the report adds two things written by it, both labelled:
-a three-sentence summary, and "Claimed versus observed", which lists what the
-agent's last message said it did and whether an observed command supports or
-contradicts each claim. That section is experimental. Without a model the
-summary comes from a fixed template and the claims section is left out.
+"Content read from other servers" lists what the agent fetched. Answers to
+requests that sent something, the agent program's own telemetry and update
+check, and Rehearsal's own package lookups are read for addresses and hidden
+text like everything else, but are not in the list. The update check is
+recognised by its host name, and only Claude Code's is known.
+
+With a local model, the report adds one thing written by it, and labelled:
+"Claimed versus observed", which lists what the agent's last message said it
+did where an observed command supports or contradicts the claim. A claim
+that no command bears on is not shown, and with no claims to show the
+section is left out. It is experimental, and without a model it is absent.
+
+If no signing key could be found or made when the session started, the page
+and the report say the record is unsigned.
 
 ## Rehearsing file changes (experimental)
 

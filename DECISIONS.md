@@ -450,11 +450,13 @@ list of destructive commands (`rm -rf`, `git reset --hard`, `git clean -f`,
 a force push, `DROP TABLE` or `DROP DATABASE`, `mkfs`, `dd` with `of=`).
 They say "worth a second look", not that anything was wrong.
 
-The two model-written parts are asked for after the decision, once the
-agent's last message is known. The model gets the facts as a data block and
-is told to use only what is there and to follow nothing in it. A summary
-that isn't three sentences, or a claims answer that doesn't match the
-schema or names a command that wasn't observed, is discarded. On the real
+The model-written part, the claims, is asked for after the decision, once
+the agent's last message is known. The model gets the final message and the
+commands as a data block and is told to use only what is there and to
+follow nothing in it. An answer that doesn't match the schema or names a
+command that wasn't observed is discarded. The report used to open with a
+summary paragraph written by the model. It was removed: it restated the
+counts below it and added a place for the model to be wrong. On the real
 model, a final message with an instruction planted in it to mark every
 claim as supported still had its "all tests pass" claim marked as
 contradicted by the failing test command.

@@ -133,7 +133,6 @@ export interface Report {
   commands: { text: string; failed: boolean | null }[]
   flags: string[]
   // written by the local model; empty when it gave no usable answer
-  modelSummary: string
   claimsChecked: boolean
   claims: ReportClaim[]
 }
@@ -149,7 +148,7 @@ export interface Ledger {
   report: Report
   // whether the log's chain of hashes recomputes; badEntry is the first
   // entry that does not match
-  record: { verified: boolean; badEntry: number }
+  record: { verified: boolean; badEntry: number; unsigned: boolean }
   // true when the agent ran in a sandbox
   sandboxed: boolean
   // writes to paths that decide what runs on this machine
@@ -163,6 +162,7 @@ export interface Ledger {
 
 export interface PackageChecked {
   manager: string
+  name: string
   risk: Risk
   // what the registry said, in plain words
   facts: string
@@ -404,6 +404,7 @@ function parseLedger(value: unknown): Ledger {
       const p = fields(item, itemWhat)
       return {
         manager: text(p, 'manager', itemWhat),
+        name: text(p, 'name', itemWhat),
         risk: oneOf(p, 'risk', risks, itemWhat),
         facts: text(p, 'facts', itemWhat),
         blocked: flag(p, 'blocked', itemWhat),
@@ -434,9 +435,13 @@ function parsePolicy(value: unknown): PolicyState {
   }
 }
 
-function parseRecord(value: unknown): { verified: boolean; badEntry: number } {
+function parseRecord(value: unknown): Ledger['record'] {
   const from = fields(value, 'ledger.record')
-  return { verified: flag(from, 'verified', 'ledger.record'), badEntry: count(from, 'bad_entry', 'ledger.record') }
+  return {
+    verified: flag(from, 'verified', 'ledger.record'),
+    badEntry: count(from, 'bad_entry', 'ledger.record'),
+    unsigned: maybeFlag(from, 'unsigned', 'ledger.record'),
+  }
 }
 
 function maybeNumber(from: Fields, key: string, what: string): number | null {
@@ -470,7 +475,6 @@ function parseReport(value: unknown): Report {
       return { text: text(c, 'text', itemWhat), failed: c['failed'] === null ? null : flag(c, 'failed', itemWhat) }
     }),
     flags: list(from, 'flags', what, word),
-    modelSummary: notes === null ? '' : maybeText(notes, 'summary', what),
     claimsChecked: notes === null ? false : flag(notes, 'claims_checked', what),
     claims:
       notes === null || notes['claims'] === undefined

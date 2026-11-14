@@ -184,47 +184,6 @@ func (b *reportBuilder) build() Report {
 	return r
 }
 
-func plainCount(n *int) string {
-	if n == nil {
-		return "not available"
-	}
-	return fmt.Sprint(*n)
-}
-
-// Summary is three plain sentences about the session, built from the
-// counts alone.
-func (l Ledger) Summary() string {
-	agent := "The agent"
-	if len(l.Command) > 0 {
-		agent = l.Command[0]
-	}
-	first := fmt.Sprintf("%s sent %s to %s, and %s outside the model provider received details of yours.",
-		agent, plural(l.Totals.Requests, "request"), plural(l.Totals.Servers, "server"), plural(l.Totals.FlaggedServers, "server"))
-	second := "Nothing was held."
-	if n := len(l.Actions); n > 0 {
-		counts := map[Outcome]int{}
-		refused := 0
-		for _, a := range l.Actions {
-			counts[a.Outcome]++
-			if a.Decision == Refused {
-				refused++
-			}
-		}
-		second = fmt.Sprintf("%s held: %d allowed, %d refused, %d failed.", plural(n, "action was", "actions were"), counts[Applied], refused, counts[Failed])
-	}
-	third := "Which model it used is not available."
-	if m := l.Report.Models; len(m) > 0 {
-		third = fmt.Sprintf("It used the model %s.", m[0].Name)
-		if len(m) > 1 {
-			third = fmt.Sprintf("It mostly used the model %s, and also %s.", m[0].Name, plural(len(m)-1, "other"))
-		}
-	}
-	if n := len(l.Report.Flags); n > 0 {
-		third += fmt.Sprintf(" %s worth a second look.", plural(n, "thing is", "things are"))
-	}
-	return first + " " + second + " " + third
-}
-
 // CommandLines are the observed shell commands, each with how it turned
 // out, as numbered for the model and for the report.
 func (l Ledger) CommandLines() []string {
@@ -242,39 +201,6 @@ func (l Ledger) CommandLines() []string {
 	return lines
 }
 
-// Facts are the counts behind the report as plain lines, which is all
-// the model is given to write its summary from.
-func (l Ledger) Facts() string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "requests sent: %d\nservers contacted: %d\nservers outside the model provider that received the user's details: %d\n",
-		l.Totals.Requests, l.Totals.Servers, l.Totals.FlaggedServers)
-	counts := map[string]int{}
-	for _, a := range l.Actions {
-		switch {
-		case a.Outcome == Applied:
-			counts["allowed and performed"]++
-		case a.Outcome == Failed:
-			counts["allowed but failed"]++
-		case a.Decision == Refused:
-			counts["refused by the user"]++
-		}
-	}
-	fmt.Fprintf(&b, "actions held for the user's decision: %d\n", len(l.Actions))
-	for _, k := range []string{"allowed and performed", "refused by the user", "allowed but failed"} {
-		fmt.Fprintf(&b, "  %s: %d\n", k, counts[k])
-	}
-	for _, m := range l.Report.Models {
-		fmt.Fprintf(&b, "model used: %s (%d requests)\n", m.Name, m.Requests)
-	}
-	for _, f := range l.Report.Flags {
-		fmt.Fprintf(&b, "worth a second look: %s\n", f)
-	}
-	for _, o := range l.Outside {
-		fmt.Fprintf(&b, "content read from another server: %s (%d hidden items)\n", o.Host, o.Hidden)
-	}
-	return b.String()
-}
-
 // Markdown renders the session report. It names what was watched for by
 // label, never by value.
 func (l Ledger) Markdown() string {
@@ -284,12 +210,6 @@ func (l Ledger) Markdown() string {
 		agent = l.Command[0]
 	}
 	fmt.Fprintf(&b, "# Rehearsal report: %s\n\n", agent)
-	if n := l.Report.Notes; n != nil && n.Summary != "" {
-		fmt.Fprintf(&b, "%s\n\n(Summary written by an AI model on this computer, from the counts below.)\n\n", n.Summary)
-	} else {
-		fmt.Fprintf(&b, "%s\n\n", l.Summary())
-	}
-
 	b.WriteString("## What left your computer\n\n| Server | Kind | Requests | Bytes sent | Received |\n|---|---|---|---|---|\n")
 	for _, s := range l.Servers {
 		kind := "other"
@@ -310,13 +230,15 @@ func (l Ledger) Markdown() string {
 		b.WriteString("| (none) | | | | |\n")
 	}
 
-	b.WriteString("\n## Before you pressed a key\n\n")
+	// A part whose figures could not be read is left out. It is never
+	// shown as zero, and a heading with "not available" under it only
+	// takes up room.
 	switch bi := l.Report.BeforeInput; {
 	case !bi.Watched:
-		b.WriteString("Not available: your input did not pass through Rehearsal in this session.\n")
 	case bi.Requests == 0:
-		b.WriteString("No request was sent before your first input reached the agent.\n")
+		b.WriteString("\n## Before you pressed a key\n\nNo request was sent before your first input reached the agent.\n")
 	default:
+		b.WriteString("\n## Before you pressed a key\n\n")
 		when := "before your first input reached the agent"
 		if !bi.InputSeen {
 			when = "and no input ever reached the agent, so this is every request"
@@ -327,9 +249,8 @@ func (l Ledger) Markdown() string {
 		}
 	}
 
-	b.WriteString("\n## Models that saw your session\n\n")
-	if len(l.Report.Models) == 0 {
-		b.WriteString("Not available: no request to the model provider named a model.\n")
+	if len(l.Report.Models) > 0 {
+		b.WriteString("\n## Models that saw your session\n\n")
 	}
 	for i, m := range l.Report.Models {
 		note := ""
@@ -340,19 +261,28 @@ func (l Ledger) Markdown() string {
 	}
 
 	t := l.Report.Tokens
-	share := "not available"
-	if t.CacheShare != nil {
-		share = fmt.Sprintf("%d%%", *t.CacheShare)
+	var counts []string
+	for _, c := range []struct {
+		name string
+		n    *int
+		unit string
+	}{
+		{"Input", t.Input, ""}, {"Output", t.Output, ""}, {"Read from cache", t.CacheRead, ""},
+		{"Written to cache", t.CacheWrite, ""}, {"Share of input served from cache", t.CacheShare, "%"},
+	} {
+		if c.n != nil {
+			counts = append(counts, fmt.Sprintf("- %s: %d%s\n", c.name, *c.n, c.unit))
+		}
 	}
-	fmt.Fprintf(&b, "\n## Tokens\n\n- Input: %s\n- Output: %s\n- Read from cache: %s\n- Written to cache: %s\n- Share of input served from cache: %s\n",
-		plainCount(t.Input), plainCount(t.Output), plainCount(t.CacheRead), plainCount(t.CacheWrite), share)
+	if len(counts) > 0 {
+		b.WriteString("\n## Tokens\n\n" + strings.Join(counts, ""))
+	}
 
-	b.WriteString("\n## What the agent did\n\n")
-	switch {
-	case !l.Report.CommandsKnown:
-		b.WriteString("Not available: the agent's conversation was not in a format Rehearsal can read.\n")
-	case len(l.Report.Commands) == 0:
-		b.WriteString("It ran no shell commands.\n")
+	if l.Report.CommandsKnown {
+		b.WriteString("\n## What the agent did\n\n")
+		if len(l.Report.Commands) == 0 {
+			b.WriteString("It ran no shell commands.\n")
+		}
 	}
 	for _, c := range l.Report.Commands {
 		how := "result not reported"
@@ -371,12 +301,19 @@ func (l Ledger) Markdown() string {
 		}
 	}
 
-	if n := l.Report.Notes; n != nil && n.ClaimsChecked {
-		b.WriteString("\n## Claimed versus observed\n\nExperimental, written by an AI model on this computer. It was shown only the agent's final message and the commands above.\n\n")
-		if len(n.Claims) == 0 {
-			b.WriteString("The final message made no claim that the commands bear on.\n")
-		}
+	// Only a claim the commands support or contradict is shown. One that
+	// nothing bears on tells the reader nothing.
+	var claims []events.ReportClaim
+	if n := l.Report.Notes; n != nil {
 		for _, c := range n.Claims {
+			if c.Verdict == "supported" || c.Verdict == "contradicted" {
+				claims = append(claims, c)
+			}
+		}
+	}
+	if len(claims) > 0 {
+		b.WriteString("\n## Claimed versus observed\n\nExperimental, written by an AI model on this computer. It was shown only the agent's final message and the commands above.\n\n")
+		for _, c := range claims {
 			fmt.Fprintf(&b, "- \"%s\": %s", c.Claim, c.Verdict)
 			if c.Command != "" {
 				fmt.Fprintf(&b, " (`%s`)", strings.ReplaceAll(c.Command, "`", "'"))
@@ -441,7 +378,9 @@ func (l Ledger) Markdown() string {
 	}
 
 	// nothing to say when the ledger was not built from a log
-	if r := l.Record; r.Verified {
+	if r := l.Record; r.Verified && r.Unsigned {
+		fmt.Fprintf(&b, "\n## Record\n\nThe log of this session had %d entries when this report was written, each carrying the hash of the one before, and the chain verified. The record is unsigned: no signing key could be found or made when the session started, so entries removed from the end could not be noticed.\n", r.Entries)
+	} else if r.Verified {
 		fmt.Fprintf(&b, "\n## Record\n\nThe log of this session had %d entries when this report was written, each carrying the hash of the one before, and the chain verified. `rehearse verify` checks it again, with its signature.\n", r.Entries)
 	} else if r.BadEntry > 0 {
 		fmt.Fprintf(&b, "\n## Record\n\nThe log of this session does not verify, starting at entry %d: %s.\n", r.BadEntry, r.Problem)

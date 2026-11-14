@@ -37,6 +37,9 @@ const timeline = computed(() => props.events.filter((e) => e.what !== ''))
 
 const recordLine = computed(() => {
   const r = props.ledger.record
+  if (r.verified && r.unsigned) {
+    return 'Record verified, but unsigned: this session had no signing key, so entries removed from the end could not be noticed.'
+  }
   if (r.verified) return 'Record verified.'
   return r.badEntry > 0 ? `Record does not verify, starting at entry ${r.badEntry}.` : 'Record does not verify.'
 })
@@ -44,12 +47,10 @@ const recordLine = computed(() => {
 const commandsOpen = ref(false)
 const r = computed(() => props.ledger.report)
 
-function shown(n: number | null): string {
-  return n === null ? 'not available' : n.toLocaleString()
-}
-
+// A line whose figure could not be read is left out: each of these is
+// empty when there is nothing to say.
 const beforeInput = computed(() => {
-  if (!r.value.inputWatched) return 'Requests before you pressed a key: not available.'
+  if (!r.value.inputWatched) return ''
   const n = r.value.requestsBeforeInput
   const sent = n === 1 ? '1 request was' : `${n} requests were`
   return r.value.inputSeen ? `${sent} sent before you pressed a key.` : `${sent} sent, and no input ever reached the agent.`
@@ -58,7 +59,7 @@ const beforeInput = computed(() => {
 const models = computed(() => {
   const list = r.value.models
   const first = list[0]
-  if (first === undefined) return 'Models that saw your session: not available.'
+  if (first === undefined) return ''
   const rest = list.slice(1).map((m) => `${m.name} (${m.requests})`)
   const main = `Model: ${first.name}, ${first.requests === 1 ? '1 request' : `${first.requests} requests`}.`
   return rest.length === 0 ? main : `${main} Also used: ${rest.join(', ')}.`
@@ -66,8 +67,16 @@ const models = computed(() => {
 
 const tokens = computed(() => {
   const t = r.value.tokens
-  const share = t.cacheShare === null ? 'not available' : `${t.cacheShare}%`
-  return `Tokens: ${shown(t.input)} in, ${shown(t.output)} out, ${shown(t.cacheRead)} read from cache, ${shown(t.cacheWrite)} written to cache. Served from cache: ${share}.`
+  const counts: [number | null, string][] = [
+    [t.input, 'in'],
+    [t.output, 'out'],
+    [t.cacheRead, 'read from cache'],
+    [t.cacheWrite, 'written to cache'],
+  ]
+  const known = counts.flatMap(([n, what]) => (n === null ? [] : [`${n.toLocaleString()} ${what}`]))
+  if (known.length === 0) return ''
+  const share = t.cacheShare === null ? '' : ` Served from cache: ${t.cacheShare}%.`
+  return `Tokens: ${known.join(', ')}.${share}`
 })
 
 const outside = computed(() =>
@@ -75,10 +84,22 @@ const outside = computed(() =>
 )
 
 const commandsLine = computed(() => {
-  if (!r.value.commandsKnown) return 'What the agent did: not available.'
+  if (!r.value.commandsKnown) return ''
   const n = r.value.commands.length
   return n === 1 ? 'The agent ran 1 shell command.' : `The agent ran ${n} shell commands.`
 })
+
+// Only a claim the commands bear on is worth showing.
+const claims = computed(() => r.value.claims.filter((c) => c.verdict === 'supported' || c.verdict === 'contradicted'))
+
+// An install that was stopped is a decision too, made by the rules, and
+// sits in the table with the others.
+const stopped = computed(() => props.ledger.packages.filter((p) => p.blocked))
+const ran = computed(() => props.ledger.packages.filter((p) => !p.blocked))
+
+function registryOf(manager: string): string {
+  return ['pip', 'pip3', 'uv'].includes(manager) ? 'the Python package index' : 'the npm registry'
+}
 
 function clock(time: string): string {
   const d = new Date(time)
@@ -100,7 +121,7 @@ async function copy(): Promise<void> {
 
 <template>
   <div class="report">
-    <div v-if="rows.length > 0" class="table">
+    <div v-if="rows.length > 0 || stopped.length > 0" class="table">
       <div class="header">
         <div class="action">Action</div>
         <div class="destination">Destination</div>
@@ -113,24 +134,30 @@ async function copy(): Promise<void> {
           <div class="exact"><BreakableText :text="row.first.exact" /></div>
           <div v-if="row.first.outcome === 'failed'" class="exact">{{ row.first.detail }}</div>
         </div>
-        <div class="destination"><BreakableText :text="where(row.first)" /></div>
+        <div class="destination"><BreakableText :text="where(row.first)" dots /></div>
         <div class="data">{{ dataSent(row.first) }}</div>
         <div :class="`decision decision-${outcomeOf(row.first)?.tone ?? 'plain'}`">
           {{ outcomeOf(row.first)?.word ?? 'Undecided' }}
         </div>
       </div>
+      <div v-for="(p, i) in stopped" :key="`package-${i}`" class="line">
+        <div class="action">
+          <div class="title">Install {{ p.name }} with {{ p.manager }}</div>
+          <div class="exact">{{ p.facts }}</div>
+        </div>
+        <div class="destination">{{ registryOf(p.manager) }}</div>
+        <div class="data">Nothing: it did not run</div>
+        <div class="decision decision-high">Stopped</div>
+      </div>
     </div>
 
     <div class="observed">
       <h2 class="heading">What was observed</h2>
-      <div v-if="r.modelSummary !== ''" class="fact">
-        {{ r.modelSummary }} <span class="aside">(Summary written by an AI model on this computer.)</span>
-      </div>
-      <div class="fact">{{ beforeInput }}</div>
-      <div class="fact">{{ models }}</div>
-      <div class="fact">{{ tokens }}</div>
+      <div v-if="beforeInput !== ''" class="fact">{{ beforeInput }}</div>
+      <div v-if="models !== ''" class="fact">{{ models }}</div>
+      <div v-if="tokens !== ''" class="fact">{{ tokens }}</div>
       <div v-if="ledger.outside.length > 0" class="fact">{{ outside }}</div>
-      <div class="fact">
+      <div v-if="commandsLine !== ''" class="fact">
         {{ commandsLine }}
         <button v-if="r.commands.length > 0" class="link" type="button" :aria-expanded="commandsOpen" @click="commandsOpen = !commandsOpen">
           {{ commandsOpen ? 'Hide commands' : 'Show commands' }}
@@ -140,9 +167,7 @@ async function copy(): Promise<void> {
         <div v-for="(c, i) in r.commands" :key="i">{{ c.text }} ({{ c.failed === null ? 'result not reported' : c.failed ? 'reported an error' : 'ok' }})</div>
       </div>
       <div v-for="flag in r.flags" :key="flag" class="fact fact-high">Worth a second look: {{ flag }}</div>
-      <div v-for="(p, i) in ledger.packages" :key="i" :class="p.blocked ? 'fact fact-high' : 'fact'">
-        {{ p.blocked ? `An ${p.manager} install was stopped` : `An ${p.manager} install went ahead` }}: {{ p.facts }}.
-      </div>
+      <div v-for="(p, i) in ran" :key="i" class="fact">An {{ p.manager }} install went ahead: {{ p.facts }}.</div>
       <div v-if="ledger.policy.allowed > 0" class="fact">
         {{ ledger.policy.allowed === 1 ? '1 action was' : `${ledger.policy.allowed} actions were` }} let through by a rule in your policy and not held.
       </div>
@@ -152,10 +177,9 @@ async function copy(): Promise<void> {
       <div v-for="offer in ledger.policy.offers.filter((o) => o.added)" :key="offer.id" class="fact">
         Added to .rehearsal/policy.yaml because you ticked it: {{ offer.line }}
       </div>
-      <div v-if="r.claimsChecked" class="claims">
+      <div v-if="claims.length > 0" class="claims">
         <div class="fact">Claimed versus observed (experimental, written by an AI model on this computer):</div>
-        <div v-if="r.claims.length === 0" class="fact">The agent's final message made no claim the commands bear on.</div>
-        <div v-for="(c, i) in r.claims" :key="i" class="fact">
+        <div v-for="(c, i) in claims" :key="i" class="fact">
           "{{ c.claim }}": {{ c.verdict }}<span v-if="c.command !== ''" class="aside"> ({{ c.command }})</span>
         </div>
       </div>
@@ -163,7 +187,7 @@ async function copy(): Promise<void> {
 
     <div class="footer">
       <div class="totals">{{ traffic }}</div>
-      <div :class="ledger.record.verified ? 'totals' : 'totals broken'">{{ recordLine }}</div>
+      <div :class="ledger.record.verified && !ledger.record.unsigned ? 'totals' : 'totals broken'">{{ recordLine }}</div>
       <div class="links">
         <button class="link" type="button" :aria-expanded="timelineOpen" @click="timelineOpen = !timelineOpen">
           {{ timelineOpen ? 'Hide timeline' : 'Timeline' }}

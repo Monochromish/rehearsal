@@ -134,6 +134,9 @@ type SessionStarted struct {
 	PolicyHash string `json:"policy_hash,omitempty"`
 	// true when no agent ran: a recording was played back
 	Replay bool `json:"replay,omitempty"`
+	// no signing key could be found or made, so the end of this session's
+	// log will not be signed
+	Unsigned bool `json:"unsigned,omitempty"`
 }
 
 // CommitsCreated lists the commits made during the session in the working
@@ -193,8 +196,6 @@ type AgentAction struct {
 // ReportNotes are the parts of the session report written by the local
 // model. They are absent when the model gave no usable answer.
 type ReportNotes struct {
-	// three sentences about the session
-	Summary string `json:"summary,omitempty"`
 	// true when the model compared the agent's final message with the
 	// commands observed, even if it found no claims
 	ClaimsChecked bool          `json:"claims_checked"`
@@ -422,6 +423,9 @@ type OutsideContent struct {
 	Comments  int `json:"comments,omitempty"`
 	// a few words from the first hidden comment, with secrets masked
 	HiddenExcerpt string `json:"hidden_excerpt,omitempty"`
+	// the reply came from a host the agent program talks to for itself,
+	// such as its telemetry or its update check
+	Background bool `json:"background,omitempty"`
 }
 
 type RefState struct {

@@ -370,3 +370,42 @@ func TestAHeldRequestsAddressIsKeptWithTheValueMasked(t *testing.T) {
 		t.Errorf("query = %q, want %q", a.Query, want)
 	}
 }
+
+// A reply from a host the agent program talks to for itself is read like
+// any other, and marked so that it isn't listed as a page the agent fetched.
+func TestRepliesFromTheAgentProgramsOwnHostsAreMarked(t *testing.T) {
+	for _, own := range []bool{false, true} {
+		h := carrying(t)
+		if own {
+			h.rec.OwnHosts([]string{"PAGE.test"})
+		}
+		f := bare(t, http.MethodGet, "https://page.test/releases/latest")
+		h.rec.Request(f)
+		f.Response = &mitm.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: []byte("latest is 1.2.3, see https://collect.example.test/notes")}
+		h.rec.Response(f)
+		evs, err := h.log.Since(0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		found := false
+		for _, ev := range evs {
+			if ev.Type != events.TypeOutsideContent {
+				continue
+			}
+			found = true
+			var oc events.OutsideContent
+			if err := json.Unmarshal(ev.Data, &oc); err != nil {
+				t.Fatal(err)
+			}
+			if oc.Background != own {
+				t.Errorf("own host %v: background = %v", own, oc.Background)
+			}
+			if !slices.Equal(oc.Hosts, []string{"collect.example.test"}) {
+				t.Errorf("own host %v: the reply was not read for addresses: %+v", own, oc)
+			}
+		}
+		if !found {
+			t.Fatalf("own host %v: no outside content was recorded", own)
+		}
+	}
+}

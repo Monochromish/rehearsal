@@ -70,6 +70,10 @@ var defaultProviders = []string{"api.anthropic.com", "mcp-proxy.anthropic.com", 
 // appear in the ledger.
 var defaultAllow = []string{"http-intake.logs.us5.datadoghq.com"}
 
+// Hosts the agent program asks for its own updates. Their replies, like
+// those of the telemetry hosts, are not listed as content the agent read.
+var updateHosts = []string{"downloads.claude.ai"}
+
 type options struct {
 	port      int
 	providers []string
@@ -238,6 +242,7 @@ func rehearse(opts options, command []string) (exitCode int, err error) {
 	if _, err := log.Append(events.TypeSessionStarted, events.SessionStarted{
 		Command: command[:1], WorkDir: workDir, ProviderHosts: opts.providers, Identifiers: identifiers,
 		Holding: !opts.noHold, InputWatched: run.WatchesInput(), ToolVersion: version, PolicyHash: pol.Hash,
+		Unsigned: keyErr != nil,
 	}); err != nil {
 		return 1, err
 	}
@@ -265,6 +270,7 @@ func rehearse(opts options, command []string) (exitCode int, err error) {
 	defer stopIntake()
 
 	recorders := []*proxy.Recorder{proxy.NewRecorder(log, matcher, opts.providers)}
+	recorders[0].OwnHosts(slices.Concat(opts.allow, updateHosts))
 	env := []string{
 		"REHEARSAL_CANARY_EMAIL=" + ident.Value(canaries, ident.IDCanaryEmail),
 		"REHEARSAL_CANARY_API_KEY=" + ident.Value(canaries, ident.IDCanaryAPIKey),
@@ -475,10 +481,9 @@ func signingKey() (ed25519.PrivateKey, error) {
 	return record.LoadOrCreateKey(dir)
 }
 
-// writeNotes adds the two parts of the report that the local model
-// writes: a three-sentence summary, and the agent's closing claims set
-// against the commands it was seen to run. Both are extras. When the
-// model gives no usable answer the report has a fixed summary and no
+// writeNotes adds the one part of the report that the local model writes:
+// the agent's closing claims set against the commands it was seen to run.
+// It is an extra. When the model gives no usable answer the report has no
 // claims section, so the model's errors are dropped here on purpose.
 func writeNotes(log *events.Log, model *review.Model, finalText string) error {
 	l, err := current(log)
@@ -491,9 +496,6 @@ func writeNotes(log *events.Log, model *review.Model, finalText string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	var notes events.ReportNotes
-	if summary, err := model.Summarise(ctx, l.Facts()); err == nil {
-		notes.Summary = summary
-	}
 	if lines := l.CommandLines(); finalText != "" && len(lines) > 0 {
 		if claims, err := model.Claims(ctx, finalText, lines); err == nil {
 			notes.ClaimsChecked = true
@@ -506,7 +508,7 @@ func writeNotes(log *events.Log, model *review.Model, finalText string) error {
 			}
 		}
 	}
-	if notes.Summary == "" && !notes.ClaimsChecked {
+	if !notes.ClaimsChecked {
 		return nil
 	}
 	_, err = log.Append(events.TypeReportNotes, notes)

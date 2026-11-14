@@ -177,9 +177,11 @@ export function statusSentence(ledger: Ledger, held: Held): string {
     case 'applying':
       return 'Doing what you allowed.'
     case 'finished': {
-      if (n === 0) return 'Nothing needs you.'
+      const stopped = ledger.packages.filter((p) => p.blocked).length
+      if (n === 0 && stopped === 0) return 'Nothing needs you.'
       const count = (word: string): number => held.actions.filter((a) => outcomeOf(a)?.word === word).length
-      const parts = [`${count('Allowed')} allowed`, `${count('Refused')} refused`]
+      const parts = n === 0 ? [] : [`${count('Allowed')} allowed`, `${count('Refused')} refused`]
+      if (stopped > 0) parts.push(plural(stopped, 'install stopped', 'installs stopped'))
       if (count('Failed') > 0) parts.push(`${count('Failed')} failed`)
       if (count('Not run') > 0) parts.push(`${count('Not run')} not run`)
       return `Done. ${parts.join(', ')}.`
@@ -191,8 +193,11 @@ export function statusSentence(ledger: Ledger, held: Held): string {
 export function markdown(ledger: Ledger, held: Held): string {
   const cell = (s: string): string => s.replace(/\|/g, '\\|').replace(/\n/g, ' ')
   const lines = [`# Rehearsal: ${ledger.command[0] ?? 'agent'} session`, '', statusSentence(ledger, held), '']
-  if (held.actions.length > 0) {
+  if (held.actions.length > 0 || ledger.packages.some((p) => p.blocked)) {
     lines.push('| Action | Destination | Data sent | Decision |', '|---|---|---|---|')
+    for (const p of ledger.packages.filter((q) => q.blocked)) {
+      lines.push(`| Install ${cell(p.name)} with ${cell(p.manager)} | ${cell(p.facts)} | Nothing: it did not run | Stopped |`)
+    }
     for (const a of held.actions) {
       lines.push(`| \`${cell(a.exact)}\` | ${cell(where(a))} | ${cell(dataSent(a))} | ${outcomeOf(a)?.word ?? 'Undecided'} |`)
     }

@@ -60,6 +60,8 @@ type memory struct {
 	results map[string]bool
 	// what the model said in its latest reply, kept in memory only
 	finalText string
+	// hosts the agent program talks to for itself; set before the proxy starts
+	own map[string]bool
 }
 
 // the most of a tool call's command kept in the log
@@ -106,6 +108,18 @@ func NewRecorder(log *events.Log, matcher *ident.Matcher, providerHosts []string
 			salt: salt, outside: newOutside(salt), credentials: map[string][32]byte{},
 			calls: map[string]bool{}, results: map[string]bool{},
 		},
+	}
+}
+
+// OwnHosts names the hosts the agent program talks to for itself and not
+// at the model's asking, such as its telemetry and its update check. What
+// they send back is still read for addresses and hidden text, but is
+// marked as not being something the agent fetched. It must be called
+// before the proxy starts.
+func (r *Recorder) OwnHosts(hosts []string) {
+	r.own = map[string]bool{}
+	for _, h := range hosts {
+		r.own[strings.ToLower(h)] = true
 	}
 }
 
@@ -335,6 +349,7 @@ func (r *Recorder) Response(f *mitm.Flow) {
 	}
 	ev := r.outside.read(displayHost(f.Request.URL), body, time.Now())
 	ev.RequestID = f.Id.String()
+	ev.Background = r.own[strings.ToLower(f.Request.URL.Hostname())]
 	r.append(events.TypeOutsideContent, ev)
 }
 

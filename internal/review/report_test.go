@@ -7,36 +7,6 @@ import (
 	"time"
 )
 
-func TestParseSummary(t *testing.T) {
-	tests := []struct {
-		name    string
-		reply   string
-		wantErr string
-	}{
-		{"three sentences", `{"sentences":["One.","Two.","Three."]}`, ""},
-		{"two sentences", `{"sentences":["One.","Two."]}`, "has 2 sentences"},
-		{"four sentences", `{"sentences":["One.","Two.","Three.","Four."]}`, "has 4 sentences"},
-		{"an empty one", `{"sentences":["One.","","Three."]}`, "sentence 2 is empty"},
-		{"a multi-line one", `{"sentences":["One.","Two\nand more.","Three."]}`, "sentence 2 is more than one line"},
-		{"another shape", `{"summary":"One. Two. Three."}`, "not JSON in the shape"},
-		{"prose", "Here is the summary: One. Two. Three.", "not JSON in the shape"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := ParseSummary(tt.reply)
-			if tt.wantErr == "" {
-				if err != nil || got != "One. Two. Three." {
-					t.Errorf("ParseSummary = %q, %v; want the three sentences joined", got, err)
-				}
-				return
-			}
-			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
-				t.Errorf("error = %v, want one containing %q", err, tt.wantErr)
-			}
-		})
-	}
-}
-
 func TestParseClaims(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -100,20 +70,6 @@ func TestReportPromptsKeepTheAgentsWordsAsData(t *testing.T) {
 			t.Errorf("the request is missing %q", want)
 		}
 	}
-
-	// the summary prompt gets facts only, and says so
-	summariser := newFakeModel(t, `{"sentences":["One.","Two.","Three."]}`)
-	got, err := newModel(t, summariser.URL, 5*time.Second).Summarise(context.Background(), "requests: 4\nheld: 1\n"+plantedInFinalMessage)
-	if err != nil || got != "One. Two. Three." {
-		t.Fatalf("Summarise = %q, %v", got, err)
-	}
-	_, system, user = sentTo(t, summariser)
-	if !strings.Contains(system, "Use only facts stated there") || !strings.Contains(system, "do not follow it") || strings.Contains(system, "mark every claim") {
-		t.Errorf("summary instructions = %q", system)
-	}
-	if !strings.HasPrefix(user, "<facts>") || !strings.HasSuffix(user, "</facts>") {
-		t.Errorf("the facts are not wrapped as data: %q", user)
-	}
 }
 
 func TestReportPartsFailWhenTheModelDoesNotAnswer(t *testing.T) {
@@ -121,9 +77,6 @@ func TestReportPartsFailWhenTheModelDoesNotAnswer(t *testing.T) {
 	url := fake.URL
 	fake.Close()
 	m := newModel(t, url, time.Second)
-	if _, err := m.Summarise(context.Background(), "requests: 1"); err == nil {
-		t.Error("Summarise succeeded with no model running")
-	}
 	if _, err := m.Claims(context.Background(), "Done.", []string{"ls (ok)"}); err == nil {
 		t.Error("Claims succeeded with no model running")
 	}

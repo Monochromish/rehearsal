@@ -195,7 +195,7 @@ function scripted(phase: Phase, actions: HeldAction[], extraServers: Server[] = 
       watching,
       servers: all,
       outside: extraServers.length > 0 ? [{ host: 'docs.example.org', reads: 2, hidden: 1 }] : [],
-      record: { verified: true, badEntry: 0 },
+      record: { verified: true, badEntry: 0, unsigned: false },
       policy:
         current === 'deciding' && list.length === 7
           ? {
@@ -213,7 +213,7 @@ function scripted(phase: Phase, actions: HeldAction[], extraServers: Server[] = 
           : { hash: '', allowed: 0, ignored: [], offers: [] },
       packages:
         extraServers.length > 0
-          ? [{ manager: 'npm', risk: 'high', facts: 'shop-utilz 1.0.0: published 9 hours ago; runs a script when installed', blocked: true }]
+          ? [{ manager: 'npm', name: 'shop-utilz', risk: 'high', facts: 'shop-utilz 1.0.0: published 9 hours ago; runs a script when installed', blocked: true }]
           : [],
       replay: false,
       sandboxed: list.some((a) => a.kind === 'file'),
@@ -234,7 +234,6 @@ function scripted(phase: Phase, actions: HeldAction[], extraServers: Server[] = 
           { text: 'git push --force origin main', failed: null },
         ],
         flags: ["A commit or push skipped the project's own checks (--no-verify): git commit -am \"Fix rounding\" --no-verify"],
-        modelSummary: '',
         claimsChecked: current === 'finished' && list.length > 0,
         claims:
           current === 'finished' && list.length > 0

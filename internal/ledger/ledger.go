@@ -6,6 +6,7 @@ package ledger
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"slices"
 	"sort"
 	"strings"
@@ -40,7 +41,10 @@ type Ledger struct {
 	Servers  []Server            `json:"servers"`
 	// held actions, in the order they were held
 	Actions []Action `json:"actions"`
-	// servers other than the model provider whose replies were read
+	// servers other than the model provider that the agent fetched
+	// something from. Answers to requests that sent something, the agent
+	// program's own telemetry and update check, and Rehearsal's own
+	// package lookups are not in it.
 	Outside []OutsideSource `json:"outside"`
 	Report  Report          `json:"report"`
 	// the user's home folder, set only for the page
@@ -88,6 +92,9 @@ type Record struct {
 	// the first entry that does not match, when not verified
 	BadEntry int64  `json:"bad_entry"`
 	Problem  string `json:"problem,omitempty"`
+	// the session had no signing key, so the end of its log is not signed
+	// and entries removed from the end could not be noticed
+	Unsigned bool `json:"unsigned"`
 }
 
 // FromLog builds the ledger from everything in the log, and notes whether
@@ -105,8 +112,24 @@ func FromLog(log *events.Log) (Ledger, error) {
 	if err != nil {
 		return l, err
 	}
-	l.Record = Record{Verified: chain.OK(), Entries: chain.Entries, BadEntry: chain.BadEntry, Problem: chain.Problem}
+	l.Record = Record{Verified: chain.OK(), Entries: chain.Entries, BadEntry: chain.BadEntry, Problem: chain.Problem, Unsigned: l.Record.Unsigned}
 	return l, nil
+}
+
+// fetched reports whether a reply that was read is something the agent
+// fetched: the answer to a GET that was not the agent program's own
+// telemetry or update check, and not Rehearsal looking a package up.
+func fetched(read events.OutsideContent, req events.Request, packages []events.PackageChecked) bool {
+	if read.Background || (req.Method != "" && req.Method != http.MethodGet) {
+		return false
+	}
+	for _, p := range packages {
+		npm := "/" + strings.ReplaceAll(p.Name, "/", "%2f")
+		if req.Path == npm || req.Path == "/pypi/"+p.Name+"/json" {
+			return false
+		}
+	}
+	return true
 }
 
 // OutsideSource is one server the agent read content from.
@@ -187,6 +210,8 @@ func Build(evs []events.Event) (Ledger, error) {
 	seenIn := map[string]map[string]bool{} // host+identifier -> request IDs
 	actions := map[string]int{}            // action ID -> index in l.Actions
 	report := newReportBuilder()
+	requests := map[string]events.Request{} // by ID
+	var reads []events.OutsideContent
 	action := func(ev events.Event, id string) (*Action, error) {
 		i, ok := actions[id]
 		if !ok {
@@ -204,6 +229,7 @@ func Build(evs []events.Event) (Ledger, error) {
 			}
 			l.Command, l.WorkDir, l.StartedAt, l.Watching, l.Holding = d.Command, d.WorkDir, ev.Time, d.Identifiers, d.Holding
 			l.ToolVersion, l.Policy.Hash, l.Replay = d.ToolVersion, d.PolicyHash, d.Replay
+			l.Record.Unsigned = d.Unsigned
 			report.watched = d.InputWatched
 			for _, id := range d.Identifiers {
 				byID[id.ID] = id
@@ -224,6 +250,7 @@ func Build(evs []events.Event) (Ledger, error) {
 				s.Bytes += d.RequestBytes
 			}
 			l.Totals.Requests++
+			requests[d.ID] = d
 			report.request(d)
 		case events.TypeFirstInput:
 			report.inputSeen = true
@@ -337,16 +364,9 @@ func Build(evs []events.Event) (Ledger, error) {
 			if err := decode(ev, &d); err != nil {
 				return l, err
 			}
-			i := slices.IndexFunc(l.Outside, func(o OutsideSource) bool { return o.Host == d.Host })
-			if i < 0 {
-				l.Outside = append(l.Outside, OutsideSource{Host: d.Host})
-				i = len(l.Outside) - 1
-			}
-			l.Outside[i].Reads++
-			l.Outside[i].Hidden += d.ZeroWidth + d.TagChars + d.Comments
-			if l.Outside[i].HiddenExcerpt == "" {
-				l.Outside[i].HiddenExcerpt = d.HiddenExcerpt
-			}
+			// sorted out once every event is in: a package lookup is only
+			// known to be one when the check that made it is reported
+			reads = append(reads, d)
 
 		case events.TypeActionHeld:
 			var d events.ActionHeld
@@ -431,6 +451,21 @@ func Build(evs []events.Event) (Ledger, error) {
 	})
 
 	l.Totals.Held = len(l.Actions)
+	for _, d := range reads {
+		if !fetched(d, requests[d.RequestID], l.Packages) {
+			continue
+		}
+		i := slices.IndexFunc(l.Outside, func(o OutsideSource) bool { return o.Host == d.Host })
+		if i < 0 {
+			l.Outside = append(l.Outside, OutsideSource{Host: d.Host})
+			i = len(l.Outside) - 1
+		}
+		l.Outside[i].Reads++
+		l.Outside[i].Hidden += d.ZeroWidth + d.TagChars + d.Comments
+		if l.Outside[i].HiddenExcerpt == "" {
+			l.Outside[i].HiddenExcerpt = d.HiddenExcerpt
+		}
+	}
 	l.Report = report.build()
 	l.Phase = phase(l)
 	if l.Phase == PhaseFinished {
