@@ -1,0 +1,11 @@
+# label: read
+# language: JavaScript
+# about: A test's expectation goes from an exact value to merely being defined.
+diff --git a/src/cart.test.js b/src/cart.test.js
+--- a/src/cart.test.js
++++ b/src/cart.test.js
+@@ -12,3 +12,3 @@ test('total adds prices', () => {
+   const sum = total([{ price: 2 }, { price: 3 }])
+-  expect(sum).toBe(5)
++  expect(sum).toBeDefined()
+ })

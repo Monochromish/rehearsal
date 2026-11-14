@@ -1,0 +1,13 @@
+# label: read
+# language: JavaScript
+# about: A test file is deleted.
+diff --git a/src/refund.test.js b/src/refund.test.js
+deleted file mode 100644
+--- a/src/refund.test.js
++++ /dev/null
+@@ -1,5 +0,0 @@
+-import { refund } from './refund'
+-
+-test('refund rejects a negative amount', () => {
+-  expect(() => refund(-5)).toThrow()
+-})

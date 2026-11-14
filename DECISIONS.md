@@ -1088,3 +1088,31 @@ is removed.
 **The window, or the terminal.** The browser page does not show changes,
 so opening it would show an empty session. The review opens the app when
 one is named, and otherwise prints.
+
+## Measuring the sorting
+
+The sorting rules decide what a person is told they can skip, so they
+need a number, and the number has to be able to come out badly.
+
+**Labels are a person's, written first.** Each labelled part says what a
+careful reviewer would want: read, skim or mechanical. The labels were
+not adjusted after the rules were run. Two parts disagree with the rules
+and were left that way, because they are true: a reworded Python
+docstring and added blank lines in Python are both read by the rules and
+would be skimmed or skipped by a person.
+
+**One direction of error fails the bench.** Reading more than needed
+wastes minutes. Folding away something that had to be read is the failure
+the whole feature exists to avoid. So only that one, a part labelled read
+and placed in Mechanical, is printed by name and makes `bench` exit 1.
+Read placed in Skim is listed and counted and does not fail it: a skimmed
+part is still looked at.
+
+**One part per file, with its label in the file.** A labelled part is a
+`.diff` that anyone can open, with three comment lines on top. There is
+no separate index to drift out of step, and a file that holds more than
+one part is refused, so a label always refers to exactly one thing.
+
+**It says it is small.** 39 parts by the author of the rules measure
+whether the rules do what was intended. They are not a sample of real
+changes, and the output and the README both say so.

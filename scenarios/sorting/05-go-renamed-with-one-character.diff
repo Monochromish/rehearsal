@@ -1,0 +1,14 @@
+# label: read
+# language: Go
+# about: Trap: the file is moved, and on the way a greater-than becomes greater-than-or-equal.
+diff --git a/internal/pay/limits.go b/internal/billing/limits.go
+similarity index 92%
+rename from internal/pay/limits.go
+rename to internal/billing/limits.go
+--- a/internal/pay/limits.go
++++ b/internal/billing/limits.go
+@@ -17,3 +17,3 @@ func over(amount, cap int) bool {
+ func over(amount, cap int) bool {
+-	return amount > cap
++	return amount >= cap
+ }

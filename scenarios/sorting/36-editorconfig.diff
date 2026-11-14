@@ -1,0 +1,10 @@
+# label: skim
+# language: Settings
+# about: The editor's indent size for Markdown.
+diff --git a/.editorconfig b/.editorconfig
+--- a/.editorconfig
++++ b/.editorconfig
+@@ -6,2 +6,2 @@
+ [*.md]
+-indent_size = 2
++indent_size = 4

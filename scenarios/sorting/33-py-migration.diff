@@ -1,0 +1,13 @@
+# label: read
+# language: Python
+# about: A database migration that drops a column.
+diff --git a/alembic/versions/20261114_drop_legacy_email.py b/alembic/versions/20261114_drop_legacy_email.py
+new file mode 100644
+--- /dev/null
++++ b/alembic/versions/20261114_drop_legacy_email.py
+@@ -0,0 +1,5 @@
++from alembic import op
++
++
++def upgrade():
++    op.drop_column("users", "legacy_email")

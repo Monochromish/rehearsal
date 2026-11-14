@@ -1,0 +1,10 @@
+# label: skim
+# language: JavaScript
+# about: A typo in a comment is fixed.
+diff --git a/src/cart.js b/src/cart.js
+--- a/src/cart.js
++++ b/src/cart.js
+@@ -3,2 +3,2 @@
+-// Retuns the total of a cart.
++// Returns the total of a cart.
+ function total(items) {

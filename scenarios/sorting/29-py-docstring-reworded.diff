@@ -1,0 +1,11 @@
+# label: skim
+# language: Python
+# about: A docstring is reworded. It is a string in the code, not a comment, and it changes nothing the program does.
+diff --git a/shop/util.py b/shop/util.py
+--- a/shop/util.py
++++ b/shop/util.py
+@@ -21,3 +21,3 @@ def cents(x):
+ def cents(x):
+-    """Turn dollars to cents."""
++    """Convert an amount in dollars to whole cents."""
+     return int(round(x * 100))

@@ -1,0 +1,17 @@
+# label: skim
+# language: Go
+# about: A new test file.
+diff --git a/internal/billing/format_test.go b/internal/billing/format_test.go
+new file mode 100644
+--- /dev/null
++++ b/internal/billing/format_test.go
+@@ -0,0 +1,9 @@
++package billing
++
++import "testing"
++
++func TestFormat(t *testing.T) {
++	if got := format(1050); got != "10.50" {
++		t.Errorf("format(1050) = %q", got)
++	}
++}

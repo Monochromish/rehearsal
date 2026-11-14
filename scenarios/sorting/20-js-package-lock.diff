@@ -1,0 +1,11 @@
+# label: mechanical
+# language: JavaScript
+# about: A version in package-lock.json.
+diff --git a/package-lock.json b/package-lock.json
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -2,3 +2,3 @@
+   "name": "shop",
+-  "version": "1.4.0",
++  "version": "1.4.1",
+   "lockfileVersion": 3,

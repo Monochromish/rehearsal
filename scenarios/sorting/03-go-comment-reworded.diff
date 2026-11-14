@@ -1,0 +1,10 @@
+# label: skim
+# language: Go
+# about: A comment is reworded.
+diff --git a/internal/quota/quota.go b/internal/quota/quota.go
+--- a/internal/quota/quota.go
++++ b/internal/quota/quota.go
+@@ -8,2 +8,2 @@
+-// allowed says if the caller can go on.
++// allowed reports whether the caller is still under its limit.
+ func allowed(used, limit int) bool {

@@ -1,0 +1,13 @@
+# label: skim
+# language: Python
+# about: A new test file.
+diff --git a/tests/test_util.py b/tests/test_util.py
+new file mode 100644
+--- /dev/null
++++ b/tests/test_util.py
+@@ -0,0 +1,5 @@
++from shop.util import cents
++
++
++def test_cents():
++    assert cents(10.5) == 1050

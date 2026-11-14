@@ -1,0 +1,11 @@
+# label: mechanical
+# language: Python
+# about: Blank lines are added between two functions.
+diff --git a/shop/util.py b/shop/util.py
+--- a/shop/util.py
++++ b/shop/util.py
+@@ -10,2 +10,4 @@
+     return round(x, 2)
++
++
+ def cents(x):

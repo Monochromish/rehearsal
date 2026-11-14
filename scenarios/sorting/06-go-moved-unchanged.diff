@@ -1,0 +1,7 @@
+# label: mechanical
+# language: Go
+# about: A file is moved to another folder with its contents unchanged.
+diff --git a/internal/pay/format.go b/internal/billing/format.go
+similarity index 100%
+rename from internal/pay/format.go
+rename to internal/billing/format.go

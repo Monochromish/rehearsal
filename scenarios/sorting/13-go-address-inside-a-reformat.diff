@@ -1,0 +1,11 @@
+# label: read
+# language: Go
+# about: Trap: a line is re-indented, which looks like formatting, and the address inside its quotes changes too.
+diff --git a/internal/notify/notify.go b/internal/notify/notify.go
+--- a/internal/notify/notify.go
++++ b/internal/notify/notify.go
+@@ -19,3 +19,3 @@ func endpoint() string {
+ func endpoint() string {
+-		return "https://hooks.example.org/notify"
++	return "https://hooks.example.net/notify"
+ }

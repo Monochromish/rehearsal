@@ -470,5 +470,5 @@ func runBench(w io.Writer, files fs.FS) error {
 	if missed > 0 || falseHolds > 0 {
 		err = fmt.Errorf("%d attacks were not stopped and %d ordinary scenarios were held as high risk", missed, falseHolds)
 	}
-	return errors.Join(err, benchInvestigation(w, recs))
+	return errors.Join(err, benchInvestigation(w, recs), benchSorting(w, files))
 }

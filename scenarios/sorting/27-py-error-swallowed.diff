@@ -1,0 +1,12 @@
+# label: read
+# language: Python
+# about: An error that was raised again is now ignored.
+diff --git a/shop/payments.py b/shop/payments.py
+--- a/shop/payments.py
++++ b/shop/payments.py
+@@ -58,4 +58,4 @@ def settle(order):
+     try:
+         charge(order)
+     except PaymentError:
+-        raise
++        pass

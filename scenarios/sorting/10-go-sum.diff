@@ -1,0 +1,10 @@
+# label: mechanical
+# language: Go
+# about: Checksums in go.sum.
+diff --git a/go.sum b/go.sum
+--- a/go.sum
++++ b/go.sum
+@@ -14,1 +14,3 @@
+ github.com/spf13/cobra v1.9.1 h1:CXSaggrXdbHK9CF+8ywj8Amf7PBRmPCOJugH954Nnlo=
++golang.org/x/text v0.21.0 h1:zyQAAkrwaneQ066sspRyJaG9VNi/YJ1NfzcGB3hZ/qo=
++golang.org/x/text v0.21.0/go.mod h1:4IBbMaMmOPCJ8SecivzSH54+73PCFmPWxNTLm+vZkEQ=

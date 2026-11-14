@@ -1,0 +1,9 @@
+# label: read
+# language: SQL
+# about: A migration that deletes rows.
+diff --git a/db/migrate/20261114093000_purge_guests.sql b/db/migrate/20261114093000_purge_guests.sql
+new file mode 100644
+--- /dev/null
++++ b/db/migrate/20261114093000_purge_guests.sql
+@@ -0,0 +1,1 @@
++DELETE FROM users WHERE kind = 'guest';

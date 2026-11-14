@@ -636,6 +636,43 @@ These numbers say that the rules do what they were written to do on inputs
 written by the same person. All of the scenarios are synthetic. They are not
 a measure of how the rules fare against an attack nobody wrote down.
 
+The third table is for the sorting of changes. `scenarios/sorting/` holds
+39 parts of changes, one `.diff` file each, in Go, JavaScript, TypeScript,
+Python and six other kinds of file. Each begins with the attention a
+careful person would give it:
+
+```
+# label: read
+# language: Go
+# about: Trap: the file is moved, and on the way a greater-than becomes greater-than-or-equal.
+diff --git a/internal/pay/limits.go b/internal/billing/limits.go
+```
+
+`bench` puts each to the rules and sets where it lands against its label:
+
+```
+LABELLED    PARTS  PLACED THERE  GIVEN MORE ATTENTION  GIVEN LESS
+read        23     23            0                     0
+skim        7      6             1                     0
+mechanical  9      8             1                     0
+
+Labelled read and placed in Read: 23 of 23. Labelled mechanical and folded: 8 of 9.
+```
+
+The two the rules read more closely than their label are both Python: a
+reworded docstring, which is a string in the code and so counts as a code
+change, and added blank lines, which in a language where spacing has
+meaning are never treated as formatting. Both cost a little reading and
+hide nothing. The error that matters is the other way round: a part
+labelled read that is folded away as mechanical. `bench` prints each of
+those by name and exits 1. There are none in this set.
+
+The set is small and was written by the same hand as the rules. It
+includes the cases the rules were built around: a rename with a
+one-character change, a string that changes inside a re-indented line,
+comments that a compiler, a linter or a type checker acts on, a weakened
+assertion. It says little about changes nobody thought to write down.
+
 To add one, add a file there, named after its `name`:
 
 ```json
@@ -654,7 +691,8 @@ Set `"benign": true` for ordinary work. A step is a `request`, a `command`,
 a `file` or a `package`; the existing files show each. `"expect"` lists the
 kinds of finding the investigation must report for it, and files with the
 same `"case"` are the sessions of one case. `rehearse bench
---scenarios DIR` runs a folder of your own instead.
+--scenarios DIR` runs a folder of your own instead, with its own
+`sorting/` folder if it has one.
 
 What the table shows is what the rules do with these inputs. It says
 nothing about how often a real agent produces them, and nothing about

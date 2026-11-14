@@ -1,0 +1,11 @@
+# label: read
+# language: YAML
+# about: The CI workflow stops running the tests on pull requests.
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -3,4 +3,3 @@
+ on:
+   push:
+-  pull_request:
+ jobs:

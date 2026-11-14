@@ -1,0 +1,10 @@
+# label: mechanical
+# language: Go
+# about: A regenerated protobuf file.
+diff --git a/api/v1/shop.pb.go b/api/v1/shop.pb.go
+--- a/api/v1/shop.pb.go
++++ b/api/v1/shop.pb.go
+@@ -120,2 +120,3 @@
+ 	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
++	Note string `protobuf:"bytes,2,opt,name=note,proto3" json:"note,omitempty"`
+ }

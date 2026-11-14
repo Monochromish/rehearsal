@@ -1,0 +1,12 @@
+# label: read
+# language: Go
+# about: A check is removed from a test that already existed.
+diff --git a/internal/quota/quota_test.go b/internal/quota/quota_test.go
+--- a/internal/quota/quota_test.go
++++ b/internal/quota/quota_test.go
+@@ -22,5 +22,2 @@ func TestAllowed(t *testing.T) {
+ 	got := allowed(9, 10)
+-	if !got {
+-		t.Errorf("allowed(9, 10) = false")
+-	}
+ }

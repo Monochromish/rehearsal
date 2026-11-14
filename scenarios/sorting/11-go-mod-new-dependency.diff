@@ -1,0 +1,11 @@
+# label: read
+# language: Go
+# about: A new dependency in go.mod.
+diff --git a/go.mod b/go.mod
+--- a/go.mod
++++ b/go.mod
+@@ -6,3 +6,4 @@
+ require (
+ 	github.com/spf13/cobra v1.9.1
++	github.com/example/fastjson v0.3.0
+ )

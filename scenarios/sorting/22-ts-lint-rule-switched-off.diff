@@ -1,0 +1,11 @@
+# label: read
+# language: TypeScript
+# about: Trap: the only added line is a comment, and the comment switches off the rule against eval for the line below it.
+diff --git a/src/plugins/load.ts b/src/plugins/load.ts
+--- a/src/plugins/load.ts
++++ b/src/plugins/load.ts
+@@ -30,3 +30,4 @@ export function run(source: string) {
+ export function run(source: string) {
++  // eslint-disable-next-line no-eval
+   return eval(source)
+ }

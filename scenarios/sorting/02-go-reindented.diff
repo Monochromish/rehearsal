@@ -1,0 +1,13 @@
+# label: mechanical
+# language: Go
+# about: Two lines are re-indented and nothing else changes.
+diff --git a/internal/quota/report.go b/internal/quota/report.go
+--- a/internal/quota/report.go
++++ b/internal/quota/report.go
+@@ -12,4 +12,4 @@ func total(xs []int) int {
+ func total(xs []int) int {
+-		sum := 0
+-		for _, x := range xs {
++	sum := 0
++	for _, x := range xs {
+ 		sum += x

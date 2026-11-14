@@ -1,0 +1,10 @@
+# label: read
+# language: Dockerfile
+# about: The base image changes to one from another registry.
+diff --git a/Dockerfile b/Dockerfile
+--- a/Dockerfile
++++ b/Dockerfile
+@@ -1,2 +1,2 @@
+-FROM node:22-slim
++FROM registry.example.net/mirror/node:22-slim
+ WORKDIR /app

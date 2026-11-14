@@ -1,0 +1,9 @@
+# label: mechanical
+# language: JavaScript
+# about: A rebuilt, minified bundle.
+diff --git a/public/app.min.js b/public/app.min.js
+--- a/public/app.min.js
++++ b/public/app.min.js
+@@ -1,1 +1,1 @@
+-!function(){var a=1;console.log(a)}();
++!function(){var a=2;console.log(a)}();

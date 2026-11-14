@@ -1,0 +1,17 @@
+# label: read
+# language: TypeScript
+# about: A new source file.
+diff --git a/src/http/retry.ts b/src/http/retry.ts
+new file mode 100644
+--- /dev/null
++++ b/src/http/retry.ts
+@@ -0,0 +1,9 @@
++export async function retry<T>(fn: () => Promise<T>, times: number): Promise<T> {
++  for (let i = 0; ; i++) {
++    try {
++      return await fn()
++    } catch (e: unknown) {
++      if (i >= times) throw e
++    }
++  }
++}

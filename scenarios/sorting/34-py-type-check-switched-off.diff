@@ -1,0 +1,11 @@
+# label: read
+# language: Python
+# about: Trap: the only change is a comment at the end of a line, and it tells the type checker to ignore that line.
+diff --git a/shop/payments.py b/shop/payments.py
+--- a/shop/payments.py
++++ b/shop/payments.py
+@@ -12,3 +12,3 @@ def charge(order):
+ def charge(order):
+-    amount = order.total
++    amount = order.total  # type: ignore
+     return gateway.charge(amount)

@@ -1,0 +1,12 @@
+# label: mechanical
+# language: JavaScript
+# about: One call is wrapped over three lines with the same tokens.
+diff --git a/src/cart.js b/src/cart.js
+--- a/src/cart.js
++++ b/src/cart.js
+@@ -44,2 +44,4 @@ function total(items) {
+-  return items.reduce((sum, item) => sum + item.price, 0)
++  return items.reduce(
++    (sum, item) => sum + item.price, 0
++  )
+ }

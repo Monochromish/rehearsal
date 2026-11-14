@@ -1,0 +1,10 @@
+# label: read
+# language: JavaScript
+# about: A new dependency in package.json.
+diff --git a/package.json b/package.json
+--- a/package.json
++++ b/package.json
+@@ -10,2 +10,3 @@
+   "dependencies": {
++    "shop-utilz": "^1.0.0",
+     "express": "^5.1.0"

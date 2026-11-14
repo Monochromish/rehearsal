@@ -1,0 +1,11 @@
+# label: skim
+# language: Markdown
+# about: A paragraph is added to the README.
+diff --git a/README.md b/README.md
+--- a/README.md
++++ b/README.md
+@@ -20,2 +20,4 @@
+ ## Running
++
++Run `make test` before you open a pull request.
+ 

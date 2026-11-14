@@ -1,0 +1,11 @@
+# label: mechanical
+# language: Go
+# about: A change inside the vendor folder.
+diff --git a/vendor/github.com/spf13/pflag/flag.go b/vendor/github.com/spf13/pflag/flag.go
+--- a/vendor/github.com/spf13/pflag/flag.go
++++ b/vendor/github.com/spf13/pflag/flag.go
+@@ -300,3 +300,3 @@
+ 	return f.name
+-}
++} // end
+ 

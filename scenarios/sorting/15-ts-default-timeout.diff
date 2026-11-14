@@ -1,0 +1,11 @@
+# label: read
+# language: TypeScript
+# about: A default timeout goes from five seconds to none.
+diff --git a/src/http/client.ts b/src/http/client.ts
+--- a/src/http/client.ts
++++ b/src/http/client.ts
+@@ -9,3 +9,3 @@
+ export const defaults = {
+-  timeoutMs: 5000,
++  timeoutMs: 0,
+   retries: 2,

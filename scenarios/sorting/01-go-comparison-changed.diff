@@ -1,0 +1,11 @@
+# label: read
+# language: Go
+# about: A limit check goes from less-than to less-than-or-equal.
+diff --git a/internal/quota/quota.go b/internal/quota/quota.go
+--- a/internal/quota/quota.go
++++ b/internal/quota/quota.go
+@@ -41,3 +41,3 @@ func allowed(used, limit int) bool {
+ func allowed(used, limit int) bool {
+-	return used < limit
++	return used <= limit
+ }
