@@ -577,7 +577,11 @@ folder that was deleted and made again carries the `user.overlay.opaque`
 attribute. Both were checked on this machine's kernel (6.18) before the
 code was written.
 
-Reads cannot be observed with this design. Nothing claims they can.
+Reads cannot be observed with this design. Nothing claims they can. So the
+folders most likely to hold a key or a cloud login (`~/.ssh`, `~/.aws`,
+`~/.config/gcloud`, `~/.azure`, `~/.kube`, `~/.gnupg`) are replaced with
+empty ones inside the sandbox. The list is short and fixed. It's a floor,
+not a claim that nothing else under home is worth reading.
 
 Per-turn snapshots, `rehearse undo` and `rehearse turns` are not built.
 

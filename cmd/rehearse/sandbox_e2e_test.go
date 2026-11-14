@@ -249,6 +249,45 @@ func counting(t *testing.T) (*httptest.Server, *paths) {
 	return srv, p
 }
 
+func TestKeysAndCloudLoginsAreNotReadableInsideTheSandbox(t *testing.T) {
+	needSandbox(t)
+	work, _ := repo(t)
+	// not under /tmp, which is a fresh empty folder inside the sandbox
+	home, err := os.MkdirTemp("/var/tmp", "rehearse-home-")
+	if err != nil {
+		t.Skipf("nowhere outside /tmp to put a home folder: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.RemoveAll(home); err != nil {
+			t.Error(err)
+		}
+	})
+	hidden := []string{".ssh", ".aws", ".config/gcloud", ".azure", ".kube", ".gnupg"}
+	for _, dir := range hidden {
+		if err := os.MkdirAll(filepath.Join(home, dir), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(home, dir, "secret"), []byte("PRIVATE "+dir+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(home, "notes.txt"), []byte("plain\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	script := `for d in ` + strings.Join(hidden, " ") + `; do cat "$HOME/$d/secret" 2>/dev/null; done > seen.txt; cat "$HOME/notes.txt" >> seen.txt`
+	s := startWith(t, work, []string{"--sandbox"}, script, "HOME="+home)
+	v := s.waitFor(ledger.PhaseDeciding)
+	s.approve(fileAction(t, v, "seen.txt").ID)
+	if code, _ := s.finish(); code != 0 {
+		t.Fatalf("exit %d:\n%s", code, s.output)
+	}
+	// the last line shows the rest of the home folder was readable, so an
+	// empty result can't pass by accident
+	if got := read(t, filepath.Join(work, "seen.txt")); got != "plain\n" {
+		t.Errorf("inside the sandbox the agent read %q, want only the ordinary file's \"plain\\n\"", got)
+	}
+}
+
 func TestDirectConnectionFailsInsideTheSandbox(t *testing.T) {
 	needSandbox(t)
 	needCurl(t)

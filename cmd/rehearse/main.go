@@ -379,8 +379,9 @@ func rehearse(opts options, command []string) (exitCode int, err error) {
 			Project: workDir, Dir: filepath.Join(sessionDir, "sandbox"),
 			Self: filepath.Join(shimDir, standinCopy),
 			// the log, the held payloads, the certificate authority's key
-			// and the signing key are ours and not for the agent to read
-			Hide:     []string{stateDir, keyDir},
+			// and the signing key are ours and not for the agent to read,
+			// and nor are the user's own keys and cloud logins
+			Hide:     append([]string{stateDir, keyDir}, sandboxHidden()...),
 			Visible:  []string{shimDir, px.CACertPath, socketDir},
 			Writable: writable,
 			Proxies:  []string{strings.TrimPrefix(px.URL, "http://"), strings.TrimPrefix(passURL, "http://")},

@@ -194,6 +194,10 @@ Inside the sandbox:
   not touched while it runs.
 - The rest of the file system is read-only, `/tmp` is a fresh empty one, and
   Rehearsal's own state and signing key are not visible at all.
+- Six folders under your home that hold keys and cloud logins are empty
+  inside the sandbox: `~/.ssh`, `~/.aws`, `~/.config/gcloud`, `~/.azure`,
+  `~/.kube` and `~/.gnupg`. An agent that signs commits or uses a cloud
+  command line tool will find it has no login.
 - A few folders under your home stay writable for real, because the agent
   keeps its login and history there and stops working without them:
   `~/.claude`, `~/.claude.json`, `~/.codex`, `~/.cache` and `~/.npm`, those
@@ -232,9 +236,11 @@ deletes ten files or more, is high risk too.
 
 What it doesn't do:
 
-- It can't see what the agent reads. Your SSH keys and cloud credentials
-  are readable inside the sandbox, as they are outside it, and a read of
-  them is not reported.
+- It can't see what the agent reads. Apart from the six folders above,
+  everything under your home is readable inside the sandbox, as it is
+  outside it, and a read is not reported. A credential kept somewhere else
+  (`~/.netrc`, `~/.docker/config.json`, a token in a shell profile) can
+  still be read.
 - The writable folders under your home are written for real. A change to
   the agent's settings there (`~/.claude/settings.json`) is reported under
   "Unusual", but it has already happened.

@@ -49,6 +49,23 @@ func sandboxWritable(extra []string) []string {
 	return out
 }
 
+// Folders under the home folder that hold keys and cloud logins. A
+// sandboxed agent sees them empty. What it reads can't be observed, so the
+// only way to know these were not read is for them not to be there.
+var hiddenInHome = []string{".ssh", ".aws", ".config/gcloud", ".azure", ".kube", ".gnupg"}
+
+func sandboxHidden() []string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, name := range hiddenInHome {
+		out = append(out, filepath.Join(home, filepath.FromSlash(name)))
+	}
+	return out
+}
+
 func pathExists(p string) bool {
 	_, err := os.Lstat(p)
 	return err == nil
