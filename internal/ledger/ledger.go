@@ -54,6 +54,8 @@ type Ledger struct {
 	// commits made in the working folder's repository during the session;
 	// nil until the agent has exited
 	Commits *events.CommitsCreated `json:"commits"`
+	// what happened to the project's files; nil until the agent has exited
+	Changes *events.ChangesCaptured `json:"changes"`
 	// whether the event log's chain of hashes recomputes. Set by FromLog.
 	Record Record `json:"record"`
 	// how the agent was confined; nil when it ran without a sandbox
@@ -306,6 +308,12 @@ func Build(evs []events.Event) (Ledger, error) {
 				return l, err
 			}
 			l.Commits = &d
+		case events.TypeChangesCaptured:
+			var d events.ChangesCaptured
+			if err := decode(ev, &d); err != nil {
+				return l, err
+			}
+			l.Changes = &d
 		case events.TypeModelUsage:
 			var d events.ModelUsage
 			if err := decode(ev, &d); err != nil {

@@ -34,6 +34,7 @@ export type EventType =
   | 'agent_result'
   | 'report_notes'
   | 'commits_created'
+  | 'changes_captured'
   | 'sandbox_started'
   | 'sensitive_write'
   | 'policy_allowed'
@@ -71,6 +72,7 @@ const eventTypes: readonly EventType[] = [
   'agent_result',
   'report_notes',
   'commits_created',
+  'changes_captured',
   'sandbox_started',
   'sensitive_write',
   'policy_allowed',

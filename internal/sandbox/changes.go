@@ -59,6 +59,61 @@ func opaque(dir string) bool {
 	return err == nil && n == 1 && buf[0] == 'y'
 }
 
+// LayerEntry is one path in the layer: a file that was added or changed,
+// or a path that is gone with everything under it.
+type LayerEntry struct {
+	// relative to the project, with forward slashes
+	Path    string
+	Deleted bool
+	// the file in the layer, for one that was added or changed
+	Source string
+	Mode   fs.FileMode
+}
+
+// LayerFiles lists every path in the layer, for working out what the
+// project's files would become. What git keeps for itself under .git is
+// left out. A folder that was removed and made again comes first as gone,
+// then as its new files.
+func (b *Box) LayerFiles() ([]LayerEntry, error) {
+	var out []LayerEntry
+	if err := b.layer("", &out); err != nil {
+		return nil, fmt.Errorf("read the sandbox's layer: %w", err)
+	}
+	return out, nil
+}
+
+func (b *Box) layer(rel string, out *[]LayerEntry) error {
+	entries, err := os.ReadDir(filepath.Join(b.upper, rel))
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		p := path.Join(rel, e.Name())
+		if inGit(p) {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			return err
+		}
+		up := filepath.Join(b.upper, p)
+		switch {
+		case whiteout(info):
+			*out = append(*out, LayerEntry{Path: p, Deleted: true})
+		case info.IsDir():
+			if opaque(up) {
+				*out = append(*out, LayerEntry{Path: p, Deleted: true})
+			}
+			if err := b.layer(p, out); err != nil {
+				return err
+			}
+		default:
+			*out = append(*out, LayerEntry{Path: p, Source: up, Mode: info.Mode()})
+		}
+	}
+	return nil
+}
+
 // Changes compares the layer with the real project. Everything git keeps
 // for itself under .git comes back as one change, apart from its settings
 // and hooks, which are listed on their own.

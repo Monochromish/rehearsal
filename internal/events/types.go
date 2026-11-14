@@ -31,7 +31,8 @@ const (
 	TypeAgentResult Type = "agent_result"
 	TypeReportNotes Type = "report_notes"
 
-	TypeCommitsCreated Type = "commits_created"
+	TypeCommitsCreated  Type = "commits_created"
+	TypeChangesCaptured Type = "changes_captured"
 
 	TypeSandboxStarted Type = "sandbox_started"
 	TypeSensitiveWrite Type = "sensitive_write"
@@ -149,6 +150,26 @@ type CommitsCreated struct {
 	Commits []string `json:"commits"`
 	// commits left off the list because it was too long
 	Omitted int `json:"omitted,omitempty"`
+}
+
+// ChangesCaptured says what happened to the project's files between the
+// agent starting and exiting. The changes themselves are a diff in the
+// session's folder, not in the log.
+type ChangesCaptured struct {
+	// false when the working folder is not inside a git repository, in
+	// which case nothing else here is set
+	InRepo bool `json:"in_repo"`
+	// the working tree before and after, as git trees
+	From string `json:"from,omitempty"`
+	To   string `json:"to,omitempty"`
+	// files that differ, and the lines added and removed in them
+	Files   int `json:"files"`
+	Added   int `json:"added"`
+	Removed int `json:"removed"`
+	// the diff was too long to keep whole
+	Truncated bool `json:"truncated,omitempty"`
+	// why the changes could not be captured, when they could not
+	Problem string `json:"problem,omitempty"`
 }
 
 // Request never carries headers, the query string or the body.

@@ -842,3 +842,34 @@ can only hold what the agent actually tries.
 
 Not tested: an interactive session, a push to a real remote, or a force
 push, any of which the checker may treat differently.
+
+## What changed in a session
+
+Before the agent starts and after it exits, `rehearse` records the working
+tree as a git tree: every file, tracked or not, that `.gitignore` doesn't
+leave out. The difference between the two trees is what changed in the
+session. Comparing against `HEAD` would not do: it would count whatever you
+had uncommitted before the agent began as the agent's.
+
+The trees are written through an index file of `rehearse`'s own, kept in the
+session's folder and started as a copy of the repository's so that unchanged
+files aren't read again. The repository's index, its working files and its
+refs are never written to. The one thing added to the repository is objects
+that nothing refers to, which git clears out in its own time. That is also
+why the session's diff is written to the session's folder when the agent
+exits (`changes.diff`, readable by you alone): the trees may not be there
+later. The log records only the two tree hashes and the counts. What the
+files changed to is the project's own text and stays out of it.
+
+`CANARY.txt` and the other files `rehearse` writes are left out of both
+trees. A diff longer than 8 MB is cut at a line end and marked as cut.
+
+With `--sandbox` the real working tree doesn't change while the agent runs,
+so the second tree is the first one with the sandbox's layer put over it:
+its new and changed files added, its deletions removed, git's own folder
+and ignored files left out. The result is what the agent did, whether or
+not any of it is later allowed.
+
+Outside a git repository nothing is captured, and the session says so.
+User settings that change how git shows a diff (an outside diff program,
+text conversion) are switched off for this, so the diff is what is on disk.

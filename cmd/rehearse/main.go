@@ -406,10 +406,12 @@ func rehearse(opts options, command []string) (exitCode int, err error) {
 		command = box.Command(command)
 	}
 
+	changed := startChanges(workDir, sessionDir)
 	exitCode, err = run.Command(command, env, func() {
 		// a failed write here costs one line of the report, not the session
 		_, _ = log.Append(events.TypeFirstInput, events.FirstInput{})
 	})
+	cleanup("record what changed in the project", func() error { return changed.finish(log, box) })
 
 	if files != nil {
 		// while the stand-ins can still be told about, so the list the user
