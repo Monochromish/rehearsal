@@ -25,11 +25,12 @@ const (
 
 	TypeOutsideContent Type = "outside_content"
 
-	TypeFirstInput  Type = "first_input"
-	TypeModelUsage  Type = "model_usage"
-	TypeAgentAction Type = "agent_action"
-	TypeAgentResult Type = "agent_result"
-	TypeReportNotes Type = "report_notes"
+	TypeFirstInput   Type = "first_input"
+	TypeFirstMessage Type = "first_message"
+	TypeModelUsage   Type = "model_usage"
+	TypeAgentAction  Type = "agent_action"
+	TypeAgentResult  Type = "agent_result"
+	TypeReportNotes  Type = "report_notes"
 
 	TypeCommitsCreated  Type = "commits_created"
 	TypeChangesCaptured Type = "changes_captured"
@@ -223,6 +224,15 @@ type Request struct {
 // FirstInput marks the first key the user pressed that was passed on to
 // the wrapped command.
 type FirstInput struct{}
+
+// FirstMessage is the start of the first thing the person asked the agent:
+// at most eight words, as the agent sent them to the model, with anything
+// being watched for replaced by its name. It is kept so that a session
+// can be told from the others, and is the only part of a conversation
+// that is.
+type FirstMessage struct {
+	Words string `json:"words"`
+}
 
 // ModelUsage is the token counts one reply from the provider stated. A
 // count it did not state is -1.

@@ -88,6 +88,10 @@ What gets recorded is which value reached which server, and whether it was in
 the address, a header or the body. Request bodies, headers, cookies, keys and
 tokens are never written to the ledger.
 
+One piece of the conversation is kept: the first eight words of the first
+thing you asked the agent, so that a list of sessions can name them by what
+they were for. A watched value among those words is replaced by its name.
+
 ## What it holds
 
 While the agent runs, these are held instead of performed:

@@ -27,12 +27,15 @@ const (
 )
 
 type Ledger struct {
-	Command   []string   `json:"command"`
-	WorkDir   string     `json:"work_dir"`
-	StartedAt time.Time  `json:"started_at"`
-	EndedAt   *time.Time `json:"ended_at"`
-	ExitCode  *int       `json:"exit_code"`
-	Phase     Phase      `json:"phase"`
+	Command   []string  `json:"command"`
+	WorkDir   string    `json:"work_dir"`
+	StartedAt time.Time `json:"started_at"`
+	// the first words of what the person asked the agent, when the
+	// conversation could be read
+	Title    string     `json:"title,omitempty"`
+	EndedAt  *time.Time `json:"ended_at"`
+	ExitCode *int       `json:"exit_code"`
+	Phase    Phase      `json:"phase"`
 	// whether actions are being held this session
 	Holding bool   `json:"holding"`
 	Totals  Totals `json:"totals"`
@@ -318,6 +321,12 @@ func Build(evs []events.Event) (Ledger, error) {
 				return l, err
 			}
 			l.Changes = &d
+		case events.TypeFirstMessage:
+			var d events.FirstMessage
+			if err := decode(ev, &d); err != nil {
+				return l, err
+			}
+			l.Title = d.Words
 		case events.TypeChangeReviewed:
 			var d events.ChangeReviewed
 			if err := decode(ev, &d); err != nil {

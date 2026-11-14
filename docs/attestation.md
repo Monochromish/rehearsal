@@ -113,7 +113,9 @@ These names are stable. New event types and new fields inside `data` may
 appear in later versions; existing ones won't be renamed.
 
 The log never holds request bodies, headers, cookies or the values of
-secrets, so there is nothing of that kind to remove. Every line's `data` is
+secrets, so there is nothing of that kind to remove. It does hold, in one
+`first_message` entry, the first eight words of the first thing you asked
+the agent, with any watched value replaced by its name. Every line's `data` is
 byte for byte what its `hash` was computed over, so the chain can be
 recomputed from the export alone: `hash` is the SHA-256 of `seq`, `time`,
 `type`, `prev` and `data`, joined by newlines.

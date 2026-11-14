@@ -1196,3 +1196,20 @@ Every pair is above 4.5 to 1, and secondary text in the light theme is
 above 7 to 1. The values are written as hex. The page hands them to the
 browser as custom properties, where a colour the browser cannot read has
 no fallback, so a second notation would add a way to fail and no benefit.
+
+## The first words of a session
+
+A list of sessions named "claude, 15:35" and "claude, 15:34" says nothing
+about which is which. The record now keeps the first eight words of the
+first thing the person asked, in one entry, and the list can show them.
+
+This is the only part of a conversation that is ever stored, so it is
+kept small on purpose: eight words and sixty characters at most, taken
+from the first message from the user and no later one, with watched values
+replaced by their names and anything shaped like a credential hidden. A
+note the agent program wraps in a tag for the model is passed over, and
+so is a single word, which is what the program's own start-up checks send.
+The words are read from the Anthropic Messages format only, like the
+commands and the token counts. A session with another provider, or with
+no readable conversation, has no such entry and is named by the program
+and the time as before.

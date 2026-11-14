@@ -58,6 +58,8 @@ type memory struct {
 	// tool calls and results already written to the log, by call ID
 	calls   map[string]bool
 	results map[string]bool
+	// the first words of what the person asked have been written down
+	titled bool
 	// what the model said in its latest reply, kept in memory only
 	finalText string
 	// hosts the agent program talks to for itself; set before the proxy starts
@@ -201,6 +203,12 @@ func (r *Recorder) readConversation(path string, body []byte) {
 	}
 	calls, results := format.Calls(body)
 	r.seen.Lock()
+	first := ""
+	if !r.titled {
+		if first = observe.FirstWords(path, body); first != "" {
+			r.titled = true
+		}
+	}
 	var newCalls []observe.Call
 	var newResults []observe.Result
 	for _, c := range calls {
@@ -216,6 +224,9 @@ func (r *Recorder) readConversation(path string, body []byte) {
 		}
 	}
 	r.seen.Unlock()
+	if first != "" {
+		r.append(events.TypeFirstMessage, events.FirstMessage{Words: redact.Text(r.matcher.Mask(first))})
+	}
 	for _, c := range newCalls {
 		text := redact.Text(c.Text)
 		if runes := []rune(text); len(runes) > maxCallText {

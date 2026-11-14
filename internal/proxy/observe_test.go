@@ -54,6 +54,22 @@ func messages(t *testing.T, body []byte) *mitm.Flow {
 	return f
 }
 
+// The first words of what the person asked are written down once, with a
+// watched value in them replaced by its name.
+func TestTheFirstWordsOfTheSessionAreKept(t *testing.T) {
+	h := carrying(t)
+	first := []byte(`{"model":"m","messages":[{"role":"user","content":"Email the report to adal and then close the ticket for good"}]}`)
+	h.rec.Request(messages(t, first))
+	h.rec.Request(messages(t, []byte(`{"model":"m","messages":[{"role":"user","content":"Something else entirely, asked later on"}]}`)))
+	got := decoded[events.FirstMessage](t, h.log, events.TypeFirstMessage)
+	if len(got) != 1 {
+		t.Fatalf("%d first-message entries, want one: %+v", len(got), got)
+	}
+	if strings.Contains(got[0].Words, "adal") || !strings.HasPrefix(got[0].Words, "Email the report to [") || !strings.HasSuffix(got[0].Words, "…") {
+		t.Errorf("words = %q, want eight words with the username replaced by its name", got[0].Words)
+	}
+}
+
 func TestProviderRequestsAreRead(t *testing.T) {
 	h := carrying(t)
 	request := recorded(t, "messages-request.json")

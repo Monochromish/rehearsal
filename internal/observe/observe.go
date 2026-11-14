@@ -237,3 +237,65 @@ func (a anthropic) FinalText(reply []byte, streamed bool) string {
 	})
 	return text.String()
 }
+
+// How much of the person's first message is kept.
+const (
+	firstWords = 8
+	firstRunes = 60
+)
+
+// FirstWords is the start of the first thing the person asked the agent,
+// as it stands in a request's conversation: the first few words of the
+// first message from the user that is more than a single word and is not
+// a note the agent program wrote for the model. It is "" when the request
+// is not in a format this package reads, or holds no such message.
+func FirstWords(path string, request []byte) string {
+	if For(path) == nil {
+		return ""
+	}
+	var body struct {
+		Messages []struct {
+			Role    string          `json:"role"`
+			Content json.RawMessage `json:"content"`
+		} `json:"messages"`
+	}
+	if json.Unmarshal(request, &body) != nil {
+		return ""
+	}
+	for _, m := range body.Messages {
+		if m.Role != "user" {
+			continue
+		}
+		var texts []string
+		var plain string
+		var blocks []anthropicBlock
+		switch {
+		case json.Unmarshal(m.Content, &plain) == nil:
+			texts = []string{plain}
+		case json.Unmarshal(m.Content, &blocks) == nil:
+			for _, b := range blocks {
+				if b.Type == "text" {
+					texts = append(texts, b.Text)
+				}
+			}
+		}
+		for _, text := range texts {
+			words := strings.Fields(text)
+			// what an agent program adds for the model is wrapped in a tag,
+			// and its own one-word checks are not something a person asked
+			if len(words) < 2 || strings.HasPrefix(words[0], "<") {
+				continue
+			}
+			if len(words) > firstWords {
+				words = append(words[:firstWords], "…")
+			}
+			out := strings.Join(words, " ")
+			if runes := []rune(out); len(runes) > firstRunes {
+				out = string(runes[:firstRunes]) + "…"
+			}
+			return out
+		}
+		return "" // only the first message from the user is looked at
+	}
+	return ""
+}

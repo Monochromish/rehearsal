@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -122,5 +123,35 @@ func TestAnthropicFinalText(t *testing.T) {
 	}
 	if got := f.FinalText([]byte("garbage"), true); got != "" {
 		t.Errorf("FinalText of garbage = %q, want nothing", got)
+	}
+}
+
+func TestFirstWords(t *testing.T) {
+	const path = "/v1/messages"
+	tests := []struct {
+		name, body, want string
+	}{
+		{"a plain message", `{"messages":[{"role":"user","content":"Fix the rounding in refund totals"}]}`, "Fix the rounding in refund totals"},
+		{"a long one is cut at eight words",
+			`{"messages":[{"role":"user","content":"Please add partial refunds to the shop API and cover them with tests"}]}`,
+			"Please add partial refunds to the shop API …"},
+		{"a note from the agent program comes first",
+			`{"messages":[{"role":"user","content":[{"type":"text","text":"<system-reminder>Today is Saturday.</system-reminder>"},{"type":"text","text":"Rename   the\nmoney helper"}]}]}`,
+			"Rename the money helper"},
+		{"only the first message from the user",
+			`{"messages":[{"role":"user","content":"quota"},{"role":"assistant","content":"ok"},{"role":"user","content":"Delete the old tests"}]}`, ""},
+		{"a long word is cut", `{"messages":[{"role":"user","content":"Explain ` + strings.Repeat("x", 90) + `"}]}`, "Explain " + strings.Repeat("x", 52) + "…"},
+		{"no message from the user", `{"messages":[{"role":"assistant","content":"Hello there"}]}`, ""},
+		{"not JSON", `Fix the rounding`, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := FirstWords(path, []byte(tt.body)); got != tt.want {
+				t.Errorf("FirstWords = %q, want %q", got, tt.want)
+			}
+		})
+	}
+	if got := FirstWords("/v1/chat/completions", []byte(`{"messages":[{"role":"user","content":"Fix the rounding"}]}`)); got != "" {
+		t.Errorf("a format that is not read gave %q", got)
 	}
 }

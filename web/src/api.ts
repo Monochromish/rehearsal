@@ -29,6 +29,7 @@ export type EventType =
   | 'action_failed'
   | 'outside_content'
   | 'first_input'
+  | 'first_message'
   | 'model_usage'
   | 'agent_action'
   | 'agent_result'
@@ -69,6 +70,7 @@ const eventTypes: readonly EventType[] = [
   'action_failed',
   'outside_content',
   'first_input',
+  'first_message',
   'model_usage',
   'agent_action',
   'agent_result',

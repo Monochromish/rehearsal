@@ -36,6 +36,9 @@ type SessionInfo struct {
 	Project   string    `json:"project"`
 	Command   string    `json:"command"`
 	StartedAt time.Time `json:"started_at"`
+	// the first words of what the person asked the agent, when the record
+	// has them; a list can name the session by them
+	Title string `json:"title,omitempty"`
 	// the session this server is running for
 	Current bool `json:"current"`
 	Replay  bool `json:"replay,omitempty"`
@@ -183,7 +186,7 @@ func (s *Server) describe(name string) (SessionInfo, bool) {
 	if cerr := o.close(); err != nil || cerr != nil || l.StartedAt.IsZero() {
 		return SessionInfo{}, false
 	}
-	info := SessionInfo{Name: name, WorkDir: l.WorkDir, Project: filepath.Base(l.WorkDir), StartedAt: l.StartedAt, Replay: l.Replay}
+	info := SessionInfo{Name: name, WorkDir: l.WorkDir, Project: filepath.Base(l.WorkDir), StartedAt: l.StartedAt, Replay: l.Replay, Title: l.Title}
 	if len(l.Command) > 0 {
 		info.Command = l.Command[0]
 	}
