@@ -74,8 +74,12 @@ func WriteCheckpoint(sessionDir string, c Checkpoint) error {
 
 // ReadCheckpoint returns fs.ErrNotExist when the session has none.
 func ReadCheckpoint(sessionDir string) (Checkpoint, error) {
+	return readCheckpoint(filepath.Join(sessionDir, checkpointFile))
+}
+
+func readCheckpoint(path string) (Checkpoint, error) {
 	var c Checkpoint
-	data, err := os.ReadFile(filepath.Join(sessionDir, checkpointFile))
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return c, fmt.Errorf("read the checkpoint: %w", err)
 	}
@@ -108,27 +112,35 @@ func Verify(log *events.Log, sessionDir string, trusted ed25519.PublicKey) (Verd
 	if err != nil {
 		return Verdict{}, err
 	}
+	return VerifyChain(chain, filepath.Join(sessionDir, checkpointFile), filepath.Base(sessionDir), trusted), nil
+}
+
+// VerifyChain checks a chain that has already been recomputed against the
+// checkpoint file at path, for the session of the given name. It is what
+// Verify does once the log is read, for a record that is not in a log: an
+// exported one.
+func VerifyChain(chain events.Chain, path, session string, trusted ed25519.PublicKey) Verdict {
 	v := Verdict{Entries: chain.Entries, FinalHash: chain.Head}
 	if !chain.OK() {
 		v.Problem, v.BadEntry = chain.Problem, chain.BadEntry
-		return v, nil
+		return v
 	}
-	c, err := ReadCheckpoint(sessionDir)
+	c, err := readCheckpoint(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		v.Problem = "there is no signed checkpoint, so entries missing from the end could not be noticed. The session did not finish cleanly, or was recorded without a signing key"
-		return v, nil
+		return v
 	}
 	if err != nil {
 		v.Problem = err.Error()
-		return v, nil
+		return v
 	}
 	v.SignedAt = c.SignedAt
 	if err := c.check(trusted); err != nil {
 		v.Problem = err.Error()
-		return v, nil
+		return v
 	}
 	switch {
-	case c.Session != filepath.Base(sessionDir):
+	case c.Session != session:
 		v.Problem = fmt.Sprintf("the checkpoint belongs to another session (%s)", c.Session)
 	case chain.Entries < c.Entries:
 		v.BadEntry = chain.Entries + 1
@@ -139,5 +151,5 @@ func Verify(log *events.Log, sessionDir string, trusted ed25519.PublicKey) (Verd
 	case chain.Head != c.FinalHash:
 		v.Problem = "the log is consistent with itself but is not the one that was signed. It has been rewritten, and which entry changed first cannot be told"
 	}
-	return v, nil
+	return v
 }

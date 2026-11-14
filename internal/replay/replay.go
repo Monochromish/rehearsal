@@ -5,10 +5,13 @@ package replay
 
 import (
 	"bytes"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"slices"
 	"strings"
 	"time"
@@ -33,6 +36,12 @@ type Recording struct {
 	About       string `json:"about,omitempty"`
 	Unprotected string `json:"unprotected,omitempty"`
 	Benign      bool   `json:"benign,omitempty"`
+	// scenarios only: the kinds of finding an investigation of it must
+	// report for its chain to count as reconstructed
+	Expect []string `json:"expect,omitempty"`
+	// scenarios only: recordings with the same case are the sessions of
+	// one case, played in name order and investigated together
+	Case string `json:"case,omitempty"`
 
 	Steps []Step `json:"steps"`
 }
@@ -55,8 +64,11 @@ type Request struct {
 	// the kinds of watched value it carried: real, canary, secret
 	Carries []string `json:"carries,omitempty"`
 	// where it carried them. Empty means the address for a GET and the
-	// body otherwise; "header" means a request header.
+	// body otherwise; "header" means a request header, and "hostname"
+	// means a label in front of the host's name.
 	In string `json:"in,omitempty"`
+	// how they were written: "" for as they are, or "base64" or "hex"
+	Encoding string `json:"encoding,omitempty"`
 	// a name for the login it used, when it went to the model provider.
 	// Two requests with different names used different logins.
 	Credential string `json:"credential,omitempty"`
@@ -68,18 +80,20 @@ type Request struct {
 
 // Command is a git, npm or gh command as its stand-in described it.
 type Command struct {
-	Kind            events.ActionKind `json:"kind"`
-	Args            []string          `json:"args"`
-	Destination     string            `json:"destination"`
-	Subject         string            `json:"subject,omitempty"`
-	Files           []string          `json:"files,omitempty"`
-	Commits         []string          `json:"commits,omitempty"`
-	Force           bool              `json:"force,omitempty"`
-	Deletes         bool              `json:"deletes,omitempty"`
-	Publishes       bool              `json:"publishes,omitempty"`
-	ChangesAccess   bool              `json:"changes_access,omitempty"`
-	Minor           bool              `json:"minor,omitempty"`
-	NeedsRealAnswer bool              `json:"needs_real_answer,omitempty"`
+	Kind        events.ActionKind `json:"kind"`
+	Args        []string          `json:"args"`
+	Destination string            `json:"destination"`
+	Subject     string            `json:"subject,omitempty"`
+	Files       []string          `json:"files,omitempty"`
+	Commits     []string          `json:"commits,omitempty"`
+	// the kinds of watched value written into the first line of a commit
+	Carries         []string `json:"carries,omitempty"`
+	Force           bool     `json:"force,omitempty"`
+	Deletes         bool     `json:"deletes,omitempty"`
+	Publishes       bool     `json:"publishes,omitempty"`
+	ChangesAccess   bool     `json:"changes_access,omitempty"`
+	Minor           bool     `json:"minor,omitempty"`
+	NeedsRealAnswer bool     `json:"needs_real_answer,omitempty"`
 }
 
 // Package is an install of a package new to the project, with what the
@@ -97,8 +111,12 @@ type Package struct {
 	Scripts  bool `json:"scripts,omitempty"`
 }
 
-// InHeader is the value of Request.In for something carried in a header.
-const InHeader = "header"
+// The values of Request.In for something carried in a header, and for
+// something carried in the name of the host.
+const (
+	InHeader   = "header"
+	InHostname = "hostname"
+)
 
 // Parse reads a recording and checks that it can be played.
 func Parse(data []byte) (Recording, error) {
@@ -130,8 +148,11 @@ func Parse(data []byte) (Recording, error) {
 		if r := s.Request; r != nil && (r.Method == "" || !strings.Contains(r.URL, "://") || strings.Contains(r.URL, "?")) {
 			return rec, fmt.Errorf("step %d: a request needs a method and an address with no query string", i+1)
 		}
-		if r := s.Request; r != nil && !slices.Contains([]string{"", InHeader}, r.In) {
+		if r := s.Request; r != nil && !slices.Contains([]string{"", InHeader, InHostname}, r.In) {
 			return rec, fmt.Errorf("step %d: %q is not a place a request can carry something", i+1, r.In)
+		}
+		if r := s.Request; r != nil && !slices.Contains([]string{"", "base64", "hex"}, r.Encoding) {
+			return rec, fmt.Errorf("step %d: %q is not a way a request can write what it carries", i+1, r.Encoding)
 		}
 	}
 	return rec, nil
@@ -275,6 +296,10 @@ type Result struct {
 	Sent int
 	// commands, file changes and installs that would have run unhindered
 	Ran int
+	// steps that carried a watched value, and those of them in which a
+	// search for the value's plain text in what was sent would find it
+	Carried int
+	Plain   int
 }
 
 var programs = map[events.ActionKind]string{
@@ -307,10 +332,22 @@ func (p Player) Play(rec Recording) (Result, error) {
 
 func (p Player) request(r Request, res *Result) error {
 	var carried []string
+	if len(r.Carries) > 0 {
+		res.Carried++
+		if r.Encoding == "" {
+			res.Plain++
+		}
+	}
 	for _, kind := range r.Carries {
 		v, ok := p.Values[kind]
 		if !ok {
 			return fmt.Errorf("the recording says a request carried a %q, and there is no such kind", kind)
+		}
+		switch r.Encoding {
+		case "base64":
+			v = base64.StdEncoding.EncodeToString([]byte(v))
+		case "hex":
+			v = hex.EncodeToString([]byte(v))
 		}
 		carried = append(carried, v)
 	}
@@ -327,6 +364,15 @@ func (p Player) request(r Request, res *Result) error {
 	if r.In == InHeader {
 		// the header a program most often puts something about itself in
 		header.Set("User-Agent", "agent/1.0 ("+strings.Join(carried, "; ")+")")
+		carried, inBody = nil, nil
+	}
+	if r.In == InHostname && len(carried) > 0 {
+		u, err := url.Parse(address)
+		if err != nil {
+			return fmt.Errorf("the recording's address %q is not readable: %w", address, err)
+		}
+		u.Host = strings.Join(carried, ".") + "." + u.Host
+		address = u.String()
 		carried, inBody = nil, nil
 	}
 	if slices.Contains([]string{http.MethodGet, http.MethodHead}, r.Method) {
@@ -355,13 +401,28 @@ func (p Player) request(r Request, res *Result) error {
 }
 
 func (p Player) command(c Command, res *Result) error {
+	if len(c.Carries) > 0 {
+		res.Carried++
+		res.Plain++
+	}
 	if p.Holder == nil {
 		res.Ran++
 		return nil
 	}
+	commits := slices.Clone(c.Commits)
+	for _, kind := range c.Carries {
+		v, ok := p.Values[kind]
+		if !ok {
+			return fmt.Errorf("the recording says a commit carried a %q, and there is no such kind", kind)
+		}
+		if len(commits) == 0 {
+			commits = []string{"update settings"}
+		}
+		commits[0] += " " + v
+	}
 	out, err := p.Holder.HoldCommand(hold.Command{
 		Kind: c.Kind, Program: programs[c.Kind], Args: c.Args, WorkDir: "/replayed/project",
-		Destination: c.Destination, Subject: c.Subject, Files: c.Files, Commits: c.Commits,
+		Destination: c.Destination, Subject: c.Subject, Files: c.Files, Commits: commits,
 		Force: c.Force, Deletes: c.Deletes, Publishes: c.Publishes, ChangesAccess: c.ChangesAccess,
 		Minor: c.Minor, NeedsRealAnswer: c.NeedsRealAnswer,
 	}, p.Masker)

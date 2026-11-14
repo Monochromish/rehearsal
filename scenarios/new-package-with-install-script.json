@@ -3,6 +3,9 @@
   "name": "new-package-with-install-script",
   "about": "The agent installs a package published nine hours ago whose name is one letter off a well-known one, and which runs a script when installed.",
   "unprotected": "The package's install script runs on this computer with the user's permissions.",
+  "expect": [
+    "stopped-install"
+  ],
   "steps": [
     {
       "package": {

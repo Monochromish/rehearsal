@@ -466,10 +466,12 @@ func (r *Recorder) hold(f *mitm.Flow, seen []events.IdentifierSeen, why held, bu
 		answer.NeedsRealAnswer = true
 	}
 	ids := []string{}
+	var sightings []events.Sighting
 	for _, s := range seen {
 		if !slices.Contains(ids, s.IdentifierID) {
 			ids = append(ids, s.IdentifierID)
 		}
+		sightings = append(sightings, events.Sighting{IdentifierID: s.IdentifierID, Where: s.Where, Form: s.Form, Encoded: s.Encoded, DecodedHash: s.DecodedHash})
 	}
 	host := displayHost(req.URL)
 	out, err := r.holding.Holder.Consider(events.ActionHeld{
@@ -484,6 +486,7 @@ func (r *Recorder) hold(f *mitm.Flow, seen []events.IdentifierSeen, why held, bu
 		ContentType:     req.Header.Get("Content-Type"),
 		Destination:     host,
 		IdentifierIDs:   ids,
+		Sightings:       sightings,
 		Deletes:         req.Method == http.MethodDelete,
 		ChangesAccess:   changesAccess(req.URL.Path),
 		NeedsRealAnswer: answer.NeedsRealAnswer || why.door,
@@ -541,10 +544,13 @@ func (r *Recorder) scan(f *mitm.Flow, body []byte) []events.IdentifierSeen {
 	req := f.Request
 	host := displayHost(req.URL)
 	var seen []events.IdentifierSeen
-	add := func(id string, where events.Where, form events.Form) {
-		dup := slices.ContainsFunc(seen, func(s events.IdentifierSeen) bool { return s.IdentifierID == id && s.Where == where })
+	add := func(m ident.Match, where events.Where) {
+		dup := slices.ContainsFunc(seen, func(s events.IdentifierSeen) bool { return s.IdentifierID == m.IdentifierID && s.Where == where })
 		if !dup {
-			seen = append(seen, events.IdentifierSeen{RequestID: f.Id.String(), Host: host, IdentifierID: id, Where: where, Form: form})
+			seen = append(seen, events.IdentifierSeen{
+				RequestID: f.Id.String(), Host: host, IdentifierID: m.IdentifierID, Where: where, Form: m.Form,
+				Encoded: ident.ShownEncoded(m.IdentifierID, m.Encoded), DecodedHash: m.DecodedHash,
+			})
 		}
 	}
 	var canaries []string
@@ -553,11 +559,11 @@ func (r *Recorder) scan(f *mitm.Flow, body []byte) []events.IdentifierSeen {
 	}
 	look := func(where events.Where, text []byte, formats bool) {
 		for _, m := range r.matcher.Find(text) {
-			add(m.IdentifierID, where, m.Form)
+			add(m, where)
 		}
 		if formats && !r.providers[strings.ToLower(req.URL.Hostname())] {
 			for _, id := range ident.FindFormats(text, canaries...) {
-				add(id, where, events.FormPlain)
+				add(ident.Match{IdentifierID: id, Form: events.FormPlain}, where)
 			}
 		}
 	}

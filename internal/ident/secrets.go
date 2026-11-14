@@ -21,6 +21,16 @@ import (
 type Secret struct {
 	ID    string
 	Value string
+	// what the value was hashed with for its Identifier. With it, a value
+	// found encoded in a request can be hashed again after decoding, and
+	// the two hashes compared by anyone reading the record.
+	Salt string
+}
+
+// SaltedHash is the hash kept for a secret in place of its value.
+func SaltedHash(salt, value string) string {
+	sum := sha256.Sum256([]byte(salt + value))
+	return hex.EncodeToString(sum[:])
 }
 
 // The shortest .env value worth watching. Shorter ones ("true", a port
@@ -61,14 +71,13 @@ func EnvSecrets(dir string) ([]events.Identifier, []Secret, error) {
 				continue
 			}
 			id := fmt.Sprintf("env-%d", len(secrets)+1)
-			sum := sha256.Sum256([]byte(salt + e.value))
 			ids = append(ids, events.Identifier{
 				ID: id, Kind: events.KindSecret,
 				Label: fmt.Sprintf("Value of %s from %s", e.name, base),
 				Name:  e.name,
-				Hash:  hex.EncodeToString(sum[:]),
+				Hash:  SaltedHash(salt, e.value),
 			})
-			secrets = append(secrets, Secret{ID: id, Value: e.value})
+			secrets = append(secrets, Secret{ID: id, Value: e.value, Salt: salt})
 		}
 	}
 	return ids, secrets, errors.Join(failed...)

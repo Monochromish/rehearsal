@@ -21,6 +21,12 @@ const (
 	maxHostsKept    = 50
 	maxURLsKept     = 200
 	maxExcerpt      = 80
+	// how many newly named hosts get an excerpt, and how much text either
+	// side of the address it holds
+	maxMentions    = 10
+	mentionContext = 100
+	// longer than any address worth keeping whole
+	maxAddress = 2048
 )
 
 var (
@@ -63,7 +69,9 @@ func (o *outside) read(host string, body []byte, now time.Time) events.OutsideCo
 	if !slices.Contains(o.sources, host) {
 		o.sources = append(o.sources, host)
 	}
-	for _, raw := range urlInText.FindAll(body, -1) {
+	comments := htmlComment.FindAllIndex(body, -1)
+	for _, at := range urlInText.FindAllIndex(body, -1) {
+		raw := body[at[0]:at[1]]
 		u, err := url.Parse(strings.TrimRight(string(raw), ".,;:!?"))
 		if err != nil || u.Hostname() == "" {
 			continue // not an address after all
@@ -78,14 +86,21 @@ func (o *outside) read(host string, body []byte, now time.Time) events.OutsideCo
 		}
 		if _, known := o.mentioned[named]; !known && !o.contacted[named] && named != host {
 			o.mentioned[named] = mention{by: host, when: now}
+			if len(ev.Mentions) < maxMentions {
+				m := events.Mention{Host: named, Excerpt: around(body, at[0], at[1])}
+				if slices.ContainsFunc(comments, func(c []int) bool { return at[0] >= c[0] && at[1] <= c[1] }) {
+					m.Hidden = "an HTML comment, which a reader of the page does not see"
+				}
+				ev.Mentions = append(ev.Mentions, m)
+			}
 		}
 	}
 
 	ev.ZeroWidth, ev.TagChars = hiddenCharacters(body)
-	comments := htmlComment.FindAllSubmatch(body, -1)
 	ev.Comments = len(comments)
 	if len(comments) > 0 {
-		ev.HiddenExcerpt = excerpt(string(comments[0][1]))
+		first := htmlComment.FindSubmatch(body)
+		ev.HiddenExcerpt = excerpt(string(first[1]))
 	}
 	return ev
 }
@@ -124,6 +139,40 @@ func hiddenCharacters(body []byte) (zeroWidth, tags int) {
 		}
 	}
 	return zeroWidth, tags
+}
+
+// around is the text either side of body[start:end], as an excerpt: the
+// words that lead up to an address and those that follow it. Every
+// address in it is cut down to its scheme and host, as everywhere else:
+// paths and query strings of what a page links to are not kept.
+func around(body []byte, start, end int) string {
+	from, to := max(0, start-mentionContext), min(len(body), end+mentionContext)
+	// out to the nearest white space, so that no address is cut in two and
+	// left unrecognisable; a run with no space in it is given up on
+	for n := 0; from > 0 && !isSpace(body[from-1]); n++ {
+		if n > maxAddress {
+			return ""
+		}
+		from--
+	}
+	for n := 0; to < len(body) && !isSpace(body[to]); n++ {
+		if n > maxAddress {
+			return ""
+		}
+		to++
+	}
+	text := urlInText.ReplaceAllStringFunc(strings.ToValidUTF8(string(body[from:to]), ""), func(raw string) string {
+		u, err := url.Parse(raw)
+		if err != nil || u.Host == "" {
+			return "[an address]"
+		}
+		return u.Scheme + "://" + u.Host
+	})
+	return redact.Text(strings.Join(strings.Fields(text), " "))
+}
+
+func isSpace(b byte) bool {
+	return b == ' ' || b == '\n' || b == '\t' || b == '\r'
 }
 
 func excerpt(s string) string {

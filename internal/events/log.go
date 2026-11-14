@@ -95,6 +95,44 @@ func canonical(seq int64, time, typ, prev, data string) string {
 	return strconv.FormatInt(seq, 10) + "\n" + time + "\n" + typ + "\n" + prev + "\n" + data
 }
 
+// HashOf is the hash of an entry with these fields, each exactly as it
+// was stored. Anyone holding an exported record can recompute it.
+func HashOf(seq int64, time, typ, prev, data string) string {
+	return hashOf(seq, time, typ, prev, data)
+}
+
+// Raw is an entry exactly as it is stored, with nothing parsed, so that
+// one that has been altered can still be read and judged.
+type Raw struct {
+	Seq  int64
+	Time string
+	Type string
+	Data string
+	Prev string
+	Hash string
+}
+
+// Raw returns every entry as stored, oldest first.
+func (l *Log) Raw() ([]Raw, error) {
+	rows, err := l.db.Query(`SELECT seq, time, type, data, prev, hash FROM events ORDER BY seq`)
+	if err != nil {
+		return nil, fmt.Errorf("read event log: %w", err)
+	}
+	defer rows.Close() // read-only; rows.Err below reports a failed read
+	var out []Raw
+	for rows.Next() {
+		var r Raw
+		if err := rows.Scan(&r.Seq, &r.Time, &r.Type, &r.Data, &r.Prev, &r.Hash); err != nil {
+			return nil, fmt.Errorf("read event log: %w", err)
+		}
+		out = append(out, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read event log: %w", err)
+	}
+	return out, nil
+}
+
 func hashOf(seq int64, time, typ, prev, data string) string {
 	sum := sha256.Sum256([]byte(canonical(seq, time, typ, prev, data)))
 	return hex.EncodeToString(sum[:])

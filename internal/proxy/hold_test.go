@@ -83,10 +83,19 @@ func TestWritesAreHeld(t *testing.T) {
 		Scheme: "http", Query: "session=[hidden]",
 		RequestBytes: int64(len(body)), ContentType: "application/json", Destination: "localhost:8099",
 	}
-	gotIDs := held.IdentifierIDs
-	held.IdentifierIDs, held.RequestID = nil, ""
+	gotIDs, gotSightings := held.IdentifierIDs, held.Sightings
+	held.IdentifierIDs, held.Sightings, held.RequestID = nil, nil, ""
 	if !equalHeld(held, want) {
 		t.Errorf("held event = %+v\nwant %+v", held, want)
+	}
+	// where each value was, and in what form, and nothing of the value
+	var where []string
+	for _, s := range gotSightings {
+		where = append(where, s.IdentifierID+" in the "+string(s.Where)+", "+string(s.Form)+s.Encoded+s.DecodedHash)
+	}
+	slices.Sort(where)
+	if !slices.Equal(where, []string{"user in the header, plain", "word in the body, plain"}) {
+		t.Errorf("sightings = %v, want the username in a header and the planted word in the body, both plain", where)
 	}
 	slices.Sort(gotIDs)
 	if !slices.Equal(gotIDs, []string{"user", "word"}) {

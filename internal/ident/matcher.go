@@ -7,6 +7,7 @@ import (
 	"cmp"
 	"encoding/base64"
 	"encoding/hex"
+	"fmt"
 	"net/url"
 	"slices"
 	"strings"
@@ -24,6 +25,10 @@ const (
 type Match struct {
 	IdentifierID string
 	Form         events.Form
+	// For a value found encoded: the encoded text as it appeared, and the
+	// identifier's salted hash when decoding that text gave its value.
+	Encoded     string
+	DecodedHash string
 }
 
 type needle struct {
@@ -38,13 +43,18 @@ type Matcher struct {
 	needles []needle
 	// what each identifier is called where its value is masked
 	names map[string]string
+	// each watched value, and for a secret the salt its hash was made
+	// with, for showing that an encoded text was that value without
+	// showing it
+	values map[string]string
+	salts  map[string]string
 }
 
 // NewMatcher watches for the identifiers that have a value, and for the
 // secrets, whose values are given separately because they are never put
 // in an Identifier.
 func NewMatcher(ids []events.Identifier, secrets ...Secret) *Matcher {
-	m := &Matcher{names: map[string]string{}}
+	m := &Matcher{names: map[string]string{}, values: map[string]string{}, salts: map[string]string{}}
 	for _, id := range ids {
 		m.names[id.ID] = id.Label
 		if id.Name != "" {
@@ -53,6 +63,7 @@ func NewMatcher(ids []events.Identifier, secrets ...Secret) *Matcher {
 		m.watch(id.ID, id.Value)
 	}
 	for _, s := range secrets {
+		m.salts[s.ID] = s.Salt
 		m.watch(s.ID, s.Value)
 	}
 	return m
@@ -62,6 +73,7 @@ func (m *Matcher) watch(id, value string) {
 	if len(value) < MinLen {
 		return
 	}
+	m.values[id] = value
 	m.add(id, events.FormPlain, []byte(value), true)
 	for _, enc := range []string{url.QueryEscape(value), url.PathEscape(value)} {
 		if enc != value {
@@ -126,21 +138,127 @@ func (m *Matcher) Find(text []byte) []Match {
 		if found[n.id] {
 			continue
 		}
-		hit := false
+		at := -1
 		if n.wholeWord {
 			if lower == nil {
 				lower = bytes.ToLower(text)
 			}
-			hit = containsWord(lower, n.pattern)
+			if containsWord(lower, n.pattern) {
+				at = bytes.Index(lower, n.pattern)
+			}
 		} else {
-			hit = bytes.Contains(text, n.pattern)
+			at = bytes.Index(text, n.pattern)
 		}
-		if hit {
-			found[n.id] = true
-			out = append(out, Match{IdentifierID: n.id, Form: n.form})
+		if at < 0 {
+			continue
 		}
+		found[n.id] = true
+		match := Match{IdentifierID: n.id, Form: n.form}
+		if n.form != events.FormPlain {
+			match.Encoded = encodedRun(text, at, at+len(n.pattern), n.wholeWord)
+			// hashed from what the decoding gave, not copied from the
+			// identifier, so that the two hashes being equal says something
+			if part, ok := decoded(match.Encoded, n.form, m.values[n.id]); ok && m.salts[n.id] != "" {
+				match.DecodedHash = SaltedHash(m.salts[n.id], part)
+			}
+		}
+		out = append(out, match)
 	}
 	return out
+}
+
+// encodedRun is the encoded text a match sits in. For base64 and hex that
+// is the whole run of such characters around the match, since the match
+// is only the part of it that the value alone decides.
+func encodedRun(text []byte, start, end int, exact bool) string {
+	if end > len(text) {
+		end = len(text)
+	}
+	if !exact {
+		for start > 0 && isEncoded(text[start-1]) {
+			start--
+		}
+		for end < len(text) && isEncoded(text[end]) {
+			end++
+		}
+		for end < len(text) && text[end] == '=' {
+			end++
+		}
+	}
+	return string(text[start:end])
+}
+
+// DecodesTo reports whether decoding encoded, in the given form, gives
+// text that holds value.
+func DecodesTo(encoded string, form events.Form, value string) bool {
+	_, ok := decoded(encoded, form, value)
+	return ok
+}
+
+// decoded decodes encoded in the given form and returns the part of the
+// result that is value, as the decoding gave it. This is the check behind
+// a claim that an encoded text was a watched value.
+func decoded(encoded string, form events.Form, value string) (part string, ok bool) {
+	if value == "" || encoded == "" {
+		return "", false
+	}
+	holds := func(d []byte) bool {
+		i := bytes.Index(bytes.ToLower(d), bytes.ToLower([]byte(value)))
+		if i < 0 {
+			return false
+		}
+		part = string(d[i : i+len(value)])
+		return true
+	}
+	switch form {
+	case events.FormURL:
+		for _, unescape := range []func(string) (string, error){url.QueryUnescape, url.PathUnescape} {
+			if d, err := unescape(encoded); err == nil && holds([]byte(d)) {
+				return part, true
+			}
+		}
+	case events.FormHex:
+		// the run may have picked up a hex digit at either end that is not part of a pair
+		for _, s := range []string{encoded, encoded[1:], encoded[:len(encoded)-1]} {
+			if d, err := hex.DecodeString(s); err == nil && holds(d) {
+				return part, true
+			}
+		}
+	case events.FormBase64:
+		trimmed := strings.TrimRight(encoded, "=")
+		for _, enc := range []*base64.Encoding{base64.RawStdEncoding, base64.RawURLEncoding} {
+			// the run may begin part of the way through a group of four
+			for skip := 0; skip < 4 && skip < len(trimmed); skip++ {
+				s := trimmed[skip:]
+				if len(s)%4 == 1 {
+					s = s[:len(s)-1]
+				}
+				if d, err := enc.DecodeString(s); err == nil && holds(d) {
+					return part, true
+				}
+			}
+		}
+	}
+	return "", false
+}
+
+// ShownEncoded is encoded text as it may be stored and displayed. A
+// planted value's is shown whole. Any other is cut to its first
+// characters with its length, because encoded text can be decoded by
+// anyone who reads it.
+func ShownEncoded(identifierID, encoded string) string {
+	const shown = 8
+	if encoded == "" || strings.HasPrefix(identifierID, "canary-") || len(encoded) <= shown {
+		return encoded
+	}
+	return fmt.Sprintf("%s… (%d characters in all)", encoded[:shown], len(encoded))
+}
+
+// IsSecret reports whether id is a secret: a value given to the matcher
+// apart from its identifier, because it must never be stored.
+func (m *Matcher) IsSecret(id string) bool {
+	_, ok := m.salts[id]
+	return ok
 }
 
 // NotShown stands in for text that still held a watched value after

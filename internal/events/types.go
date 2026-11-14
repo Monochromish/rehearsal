@@ -106,6 +106,8 @@ const (
 	WhereAddress Where = "address"
 	WhereHeader  Where = "header"
 	WhereBody    Where = "body"
+	// the first line of a commit being pushed
+	WhereCommit Where = "commit message"
 )
 
 // Form is how the identifier was written inside the request.
@@ -254,6 +256,23 @@ type IdentifierSeen struct {
 	IdentifierID string `json:"identifier_id"`
 	Where        Where  `json:"where"`
 	Form         Form   `json:"form"`
+	// For a value that was found encoded. Encoded is the encoded text as
+	// it appeared: all of it for a planted value, and otherwise only its
+	// first characters and its length, since encoded text can be decoded.
+	// DecodedHash is set when decoding the text gave the watched value:
+	// it is that value's salted hash, to set beside the identifier's own.
+	Encoded     string `json:"encoded,omitempty"`
+	DecodedHash string `json:"decoded_hash,omitempty"`
+}
+
+// Sighting is one watched value found in a held action: which one, where,
+// in what form, and for an encoded one the same evidence as IdentifierSeen.
+type Sighting struct {
+	IdentifierID string `json:"identifier_id"`
+	Where        Where  `json:"where"`
+	Form         Form   `json:"form"`
+	Encoded      string `json:"encoded,omitempty"`
+	DecodedHash  string `json:"decoded_hash,omitempty"`
 }
 
 type SessionEnded struct {
@@ -319,7 +338,9 @@ type ActionHeld struct {
 	// what is being sent, in a few words: "branch main", "left-pad@1.0.1"
 	Subject       string   `json:"subject,omitempty"`
 	IdentifierIDs []string `json:"identifier_ids"`
-	Force         bool     `json:"force,omitempty"`
+	// held requests: each watched value found, with where and in what form
+	Sightings []Sighting `json:"sightings,omitempty"`
+	Force     bool       `json:"force,omitempty"`
 	// removes something on the far side: a repository, release, branch or tag
 	Deletes   bool `json:"deletes,omitempty"`
 	Publishes bool `json:"publishes,omitempty"`
@@ -444,9 +465,22 @@ type OutsideContent struct {
 	Comments  int `json:"comments,omitempty"`
 	// a few words from the first hidden comment, with secrets masked
 	HiddenExcerpt string `json:"hidden_excerpt,omitempty"`
+	// for each host first named in this content, the words around its
+	// address, with secrets masked
+	Mentions []Mention `json:"mentions,omitempty"`
 	// the reply came from a host the agent program talks to for itself,
 	// such as its telemetry or its update check
 	Background bool `json:"background,omitempty"`
+}
+
+// Mention is where outside content named a host: a short excerpt of the
+// text around the address, and how that text was hidden from a reader,
+// when it was.
+type Mention struct {
+	Host    string `json:"host"`
+	Excerpt string `json:"excerpt"`
+	// "an HTML comment", or "" when the text was in plain sight
+	Hidden string `json:"hidden,omitempty"`
 }
 
 type RefState struct {

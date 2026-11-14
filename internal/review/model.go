@@ -129,6 +129,21 @@ func NewModel(baseURL, name string, timeout time.Duration) (*Model, error) {
 	}, nil
 }
 
+// Name is the name the model is asked for by.
+func (m *Model) Name() string { return m.name }
+
+// Complete asks the model for free text, with the settings every call
+// shares. It is for writing that is checked by code afterwards, not for
+// reviewing an action.
+func (m *Model) Complete(ctx context.Context, system, user string, maxTokens int) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, m.timeout)
+	defer cancel()
+	return m.chat(ctx, map[string]any{
+		"max_tokens": maxTokens,
+		"messages":   []message{{"system", system}, {"user", user}},
+	})
+}
+
 // Down reports whether the model has failed to answer.
 func (m *Model) Down() bool {
 	m.mu.Lock()

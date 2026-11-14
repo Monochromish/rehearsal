@@ -129,6 +129,7 @@ func main() {
 	root.AddCommand(recordCommands()...)
 	root.AddCommand(policyCommand())
 	root.AddCommand(replayCommands()...)
+	root.AddCommand(investigateCommand())
 	f := root.Flags()
 	f.SetInterspersed(false) // everything after the command belongs to it
 	f.IntVar(&opts.port, "port", 0, "port for the page (default: any free port)")
@@ -362,6 +363,7 @@ func rehearse(opts options, command []string) (exitCode int, err error) {
 	described := server.Info{Version: version}
 	if reviewer.model != nil {
 		described.Reviewer = opts.reviewerModel
+		web.UseInvestigator(reviewer.model)
 	}
 	web.Describe(described)
 	// Runs before the deferred steps above, so the page server has drained

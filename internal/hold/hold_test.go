@@ -191,3 +191,63 @@ func TestALocalPathIsNotSomethingSent(t *testing.T) {
 		})
 	}
 }
+
+// A secret in the first line of a commit is recorded as found there, and
+// its name is stored in its place. A planted value and a detail of the
+// user's own are not secrets and stay as they were written.
+func TestASecretInACommitSubjectIsNamedNotStored(t *testing.T) {
+	const secret = "tok-4f9a7c21e8b05d36"
+	ids := []events.Identifier{
+		{ID: "user", Kind: events.KindReal, Label: "Your computer username", Value: "adal"},
+		{ID: "canary-word", Kind: events.KindCanary, Label: "Planted word", Value: "plantedword77"},
+		{ID: "env-1", Kind: events.KindSecret, Label: "Value of API_KEY from .env", Name: "API_KEY", Hash: ident.SaltedHash("salt", secret)},
+	}
+	m := Masker{Matcher: ident.NewMatcher(ids, ident.Secret{ID: "env-1", Value: secret, Salt: "salt"}), Keep: []string{"plantedword77"}}
+	log, err := events.Open(filepath.Join(t.TempDir(), "events.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := log.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
+	store, err := NewStore(filepath.Join(t.TempDir(), "held"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := Command{
+		Kind: events.ActionGitPush, Program: "git", WorkDir: "/home/adal/project", Args: []string{"push", "origin", "main"},
+		Destination: "git.example.test:shop.git",
+		Commits:     []string{"Set the deploy key to " + secret, "Fix adal's typo", "Note plantedword77 in the readme"},
+	}
+	if _, err := NewHolder(log, store).HoldCommand(c, m); err != nil {
+		t.Fatal(err)
+	}
+	evs, err := log.Since(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := string(evs[len(evs)-1].Data)
+	if strings.Contains(raw, secret) {
+		t.Fatalf("the secret is in the log: %s", raw)
+	}
+	var held events.ActionHeld
+	if err := json.Unmarshal(evs[len(evs)-1].Data, &held); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"Set the deploy key to [API_KEY]", "Fix adal's typo", "Note plantedword77 in the readme"}
+	if !reflect.DeepEqual(held.Commits, want) {
+		t.Errorf("commits = %q, want %q", held.Commits, want)
+	}
+	found := map[string]events.Where{}
+	for _, s := range held.Sightings {
+		found[s.IdentifierID] = s.Where
+		if s.Form != events.FormPlain {
+			t.Errorf("%s found as %s", s.IdentifierID, s.Form)
+		}
+	}
+	if len(found) != 3 || found["env-1"] != events.WhereCommit || found["user"] != events.WhereCommit || found["canary-word"] != events.WhereCommit {
+		t.Errorf("sightings = %+v, want all three in a commit message", held.Sightings)
+	}
+}

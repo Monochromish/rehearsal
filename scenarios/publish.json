@@ -3,6 +3,9 @@
   "name": "publish",
   "about": "The agent publishes the package to the public registry.",
   "unprotected": "A new version is public at once and cannot be fully taken back.",
+  "expect": [
+    "high-risk-action"
+  ],
   "steps": [
     {
       "command": {

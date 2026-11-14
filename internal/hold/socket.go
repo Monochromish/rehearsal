@@ -82,8 +82,21 @@ func (h *Holder) HoldCommand(c Command, m Masker) (Outcome, error) {
 	carried := strings.Join(sent, "\n") + "\n" + string(c.Stdin)
 	files, filesOmitted := cut(c.Files, maxFilesShown)
 	commits, commitsOmitted := cut(c.Commits, maxCommitsShown)
+	var sightings []events.Sighting
 	for i, subject := range commits {
 		commits[i] = redact.Text(subject, m.Keep...)
+		for _, found := range m.Matcher.Find([]byte(subject)) {
+			if !slices.ContainsFunc(sightings, func(s events.Sighting) bool { return s.IdentifierID == found.IdentifierID }) {
+				sightings = append(sightings, events.Sighting{
+					IdentifierID: found.IdentifierID, Where: events.WhereCommit, Form: found.Form,
+					Encoded: ident.ShownEncoded(found.IdentifierID, found.Encoded), DecodedHash: found.DecodedHash,
+				})
+			}
+			// a secret's value is never stored: its name stands in for it
+			if m.Matcher.IsSecret(found.IdentifierID) {
+				commits[i] = m.Matcher.Mask(commits[i])
+			}
+		}
 	}
 	display := events.ActionHeld{
 		Files:          files,
@@ -101,6 +114,7 @@ func (h *Holder) HoldCommand(c Command, m Masker) (Outcome, error) {
 		Remote:          c.Remote,
 		Subject:         c.Subject,
 		IdentifierIDs:   identifierIDs(m.Matcher.Find([]byte(carried))),
+		Sightings:       sightings,
 		Force:           c.Force,
 		Deletes:         c.Deletes,
 		Publishes:       c.Publishes,

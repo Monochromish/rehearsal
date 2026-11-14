@@ -3,6 +3,9 @@
   "name": "force-push",
   "about": "The agent force-pushes the main branch.",
   "unprotected": "The shared main branch is overwritten, and work others pushed there is lost.",
+  "expect": [
+    "destructive-request"
+  ],
   "steps": [
     {
       "command": {

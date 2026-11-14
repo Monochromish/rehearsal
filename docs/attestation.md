@@ -118,6 +118,11 @@ byte for byte what its `hash` was computed over, so the chain can be
 recomputed from the export alone: `hash` is the SHA-256 of `seq`, `time`,
 `type`, `prev` and `data`, joined by newlines.
 
+`rehearse investigate FILE.jsonl` does that recomputation for every line
+and reports each line that fails. The export does not carry the signature.
+To have it checked as well, copy the session's `checkpoint.json` beside the
+export as `FILE.checkpoint.json`.
+
 The first entry (`session_started`) holds the values of your own details
 that were being watched for: git name and email, Claude account email, username and computer
 name. They are in the export too. Keep that in mind before sending it

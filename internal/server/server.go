@@ -21,6 +21,7 @@ import (
 
 	"rehearsal/internal/changes"
 	"rehearsal/internal/events"
+	"rehearsal/internal/investigate"
 	"rehearsal/internal/ledger"
 	"rehearsal/internal/redact"
 )
@@ -42,6 +43,8 @@ type Server struct {
 	// where every session's folder is, and the name of the live one's
 	sessionsDir, current string
 	described            map[string]SessionInfo
+	// the local model that writes accounts of findings; nil for none
+	asker investigate.Asker
 }
 
 // ShowChanges sets where the session's sorted changes come from.
@@ -162,6 +165,8 @@ func Start(log *events.Log, ui fs.FS, port int) (*Server, error) {
 	mux.HandleFunc("GET /api/sessions/{name}/change", s.handleSessionChange)
 	mux.HandleFunc("GET /api/sessions/{name}/entries", s.handleSessionEntries)
 	mux.HandleFunc("GET /api/sessions/{name}/record", s.handleSessionRecord)
+	mux.HandleFunc("GET /api/investigate", s.handleInvestigate)
+	mux.HandleFunc("POST /api/investigate/ask", s.handleAsk)
 	if _, err := fs.Stat(ui, "index.html"); err == nil {
 		mux.Handle("GET /", http.FileServerFS(ui))
 	} else {

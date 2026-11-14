@@ -171,9 +171,9 @@ func newReplayed(holding bool) (*replayed, error) {
 	// values of each kind this replay watches for and puts back in.
 	canaries := ident.NewCanaries()
 	detail := events.Identifier{ID: "replay-detail", Kind: events.KindReal, Label: "A detail of yours (a stand-in, for the replay)", Value: "replay-user-" + strings.ToLower(rand.Text()[:10])}
-	secret := ident.Secret{ID: "replay-secret", Value: "replay-secret-" + strings.ToLower(rand.Text())}
+	secret := ident.Secret{ID: "replay-secret", Value: "replay-secret-" + strings.ToLower(rand.Text()), Salt: rand.Text()}
 	identifiers := append(slices.Clone(canaries), detail,
-		events.Identifier{ID: secret.ID, Kind: events.KindSecret, Label: "A secret from the project (a stand-in, for the replay)"})
+		events.Identifier{ID: secret.ID, Kind: events.KindSecret, Label: "A secret from the project (a stand-in, for the replay)", Hash: ident.SaltedHash(secret.Salt, secret.Value)})
 	identifiers = append(identifiers, ident.FormatIdentifiers()...)
 	matcher := ident.NewMatcher(identifiers, secret)
 	for _, c := range canaries {
@@ -466,8 +466,9 @@ func runBench(w io.Writer, files fs.FS) error {
 	fmt.Fprintln(w, "\"Stopped\" means held as high risk for the user's decision, or an install refused. The scenarios are")
 	fmt.Fprintln(w, "replayed against the rules with no agent, no network and no model: they show what the rules do with")
 	fmt.Fprintln(w, "these inputs, not how an agent behaves.")
+	err = nil
 	if missed > 0 || falseHolds > 0 {
-		return fmt.Errorf("%d attacks were not stopped and %d ordinary scenarios were held as high risk", missed, falseHolds)
+		err = fmt.Errorf("%d attacks were not stopped and %d ordinary scenarios were held as high risk", missed, falseHolds)
 	}
-	return nil
+	return errors.Join(err, benchInvestigation(w, recs))
 }
