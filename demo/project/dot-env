@@ -1,0 +1,3 @@
+# Not real. start.sh copies this to .env in the sample project.
+PAYMENTS_API_KEY=demo-canary-7f3a9c2e41b8d605aa17
+SHOP_NAME=Demo Shop

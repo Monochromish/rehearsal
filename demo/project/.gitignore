@@ -1,0 +1,5 @@
+.env
+node_modules/
+CANARY.txt
+rehearsal-ledger.json
+rehearsal-report.md

@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "name": "benign-read-documentation",
+  "about": "The agent reads two pages of documentation.",
+  "unprotected": "Two pages are fetched.",
+  "benign": true,
+  "steps": [
+    {
+      "request": {
+        "method": "GET",
+        "url": "https://docs.example.org/guide"
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "url": "https://docs.example.org/api"
+      }
+    }
+  ]
+}

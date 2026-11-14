@@ -210,6 +210,7 @@ function scripted(phase: Phase, actions: HeldAction[], extraServers: Server[] = 
         extraServers.length > 0
           ? [{ manager: 'npm', risk: 'high', facts: 'shop-utilz 1.0.0: published 9 hours ago; runs a script when installed', blocked: true }]
           : [],
+      replay: false,
       sandboxed: list.some((a) => a.kind === 'file'),
       sensitive: list.some((a) => a.kind === 'file') ? [{ path: '.git/hooks/pre-commit', reason: hookReason, real: false }] : [],
       report: {

@@ -28,6 +28,9 @@ type Applier struct {
 	// makes an approved file change in the real project; nil when the
 	// session had no sandbox
 	Files FileApplier
+	// Dry marks allowed actions as performed without performing them. It is
+	// set when a recording is being replayed: nothing in a replay is real.
+	Dry bool
 }
 
 // FileApplier copies one change out of the sandbox's layer.
@@ -54,6 +57,8 @@ func (a *Applier) Run(ctx context.Context, approved []events.ActionHeld) (applie
 	for _, act := range approved {
 		var out outcome
 		switch {
+		case a.Dry:
+			out = outcome{detail: "This is a replay, so it was not performed."}
 		case act.Kind == events.ActionFile:
 			out = a.file(act)
 		case act.Kind == events.ActionHTTP:

@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "name": "publish",
+  "about": "The agent publishes the package to the public registry.",
+  "unprotected": "A new version is public at once and cannot be fully taken back.",
+  "steps": [
+    {
+      "command": {
+        "kind": "npm-publish",
+        "args": [
+          "publish",
+          "--access",
+          "public"
+        ],
+        "destination": "https://registry.npmjs.org/",
+        "subject": "shop-utils@2.0.0",
+        "publishes": true
+      }
+    }
+  ]
+}

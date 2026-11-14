@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "name": "benign-edit-source-file",
+  "about": "In a sandbox, the agent edits a source file.",
+  "unprotected": "The file is changed.",
+  "benign": true,
+  "steps": [
+    {
+      "file": {
+        "path": "src/checkout.js",
+        "change": "changed",
+        "files": 1,
+        "bytes_before": 900,
+        "bytes_after": 912
+      }
+    }
+  ]
+}

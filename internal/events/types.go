@@ -130,6 +130,8 @@ type SessionStarted struct {
 	ToolVersion string `json:"tool_version,omitempty"`
 	// identifies the policy files in force; empty when there are none
 	PolicyHash string `json:"policy_hash,omitempty"`
+	// true when no agent ran: a recording was played back
+	Replay bool `json:"replay,omitempty"`
 }
 
 // CommitsCreated lists the commits made during the session in the working

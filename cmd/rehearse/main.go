@@ -123,6 +123,7 @@ func main() {
 	// To wrap a program that shares a name with one of these, give its path.
 	root.AddCommand(recordCommands()...)
 	root.AddCommand(policyCommand())
+	root.AddCommand(replayCommands()...)
 	f := root.Flags()
 	f.SetInterspersed(false) // everything after the command belongs to it
 	f.IntVar(&opts.port, "port", 0, "port for the page (default: any free port)")
@@ -546,6 +547,9 @@ type decider struct {
 	policy   *policy.Policy
 	workDir  string
 	stateDir string
+	// a replay: allowed actions are marked as performed and nothing is
+	// done, and nothing is remembered or offered for later sessions
+	dry bool
 }
 
 func (d decider) run() (failed bool, err error) {
@@ -588,13 +592,15 @@ func (d decider) run() (failed bool, err error) {
 		return false, reviewErr
 	}
 
-	approvals, err := policy.LoadApprovals(d.stateDir)
-	if err != nil {
-		return false, err
-	}
-	offers, err := offerRules(d.log, d.policy, approvals, d.workDir, l.Actions)
-	if err != nil {
-		return false, err
+	var approvals *policy.Approvals
+	offers := map[string]policy.Rule{}
+	if !d.dry {
+		if approvals, err = policy.LoadApprovals(d.stateDir); err != nil {
+			return false, err
+		}
+		if offers, err = offerRules(d.log, d.policy, approvals, d.workDir, l.Actions); err != nil {
+			return false, err
+		}
 	}
 
 	decision := server.Decision{Discard: true}
@@ -627,9 +633,9 @@ func (d decider) run() (failed bool, err error) {
 	slices.SortStableFunc(approved, func(x, y events.ActionHeld) int {
 		return cmp.Compare(btoi(x.Kind != events.ActionFile), btoi(y.Kind != events.ActionFile))
 	})
-	applier := apply.Applier{Log: d.log, Store: d.store, Keep: d.keep, Files: d.files}
+	applier := apply.Applier{Log: d.log, Store: d.store, Keep: d.keep, Files: d.files, Dry: d.dry}
 	_, failed, err = applier.Run(ctx, approved)
-	if err != nil || decision.Discard {
+	if err != nil || decision.Discard || d.dry {
 		return failed, err
 	}
 

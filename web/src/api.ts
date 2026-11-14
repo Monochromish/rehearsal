@@ -155,6 +155,8 @@ export interface Ledger {
   policy: PolicyState
   // packages the agent asked to install that were new to the project
   packages: PackageChecked[]
+  // true when a recording is being played back and no agent is running
+  replay: boolean
 }
 
 export interface PackageChecked {
@@ -389,6 +391,7 @@ function parseLedger(value: unknown): Ledger {
     report: parseReport(from['report']),
     record: parseRecord(from['record']),
     policy: parsePolicy(from['policy']),
+    replay: flag(from, 'replay', what),
     packages: list(from, 'packages', what, (item, itemWhat) => {
       const p = fields(item, itemWhat)
       return {

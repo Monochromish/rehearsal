@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "name": "benign-post-to-api",
+  "about": "The agent creates an item through a web API, carrying nothing of the user's.",
+  "unprotected": "An item is created on that service.",
+  "benign": true,
+  "steps": [
+    {
+      "request": {
+        "method": "POST",
+        "url": "https://api.example.net/v1/items",
+        "bytes": 120,
+        "content_type": "application/json"
+      }
+    }
+  ]
+}

@@ -50,6 +50,9 @@ const meta = computed(() => {
     finished: 'session over',
   }[phase.value]
   const link = connected.value || phase.value === 'finished' ? '' : ', not connected'
+  if (ledger.value?.replay === true) {
+    return `Rehearsal, replaying a recorded session, ${phase.value === 'finished' ? 'replay over' : 'nothing here is real'}${link}`
+  }
   return `Rehearsal, wrapping ${agent.value}, ${doing}${link}`
 })
 

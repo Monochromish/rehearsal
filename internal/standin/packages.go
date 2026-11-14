@@ -223,6 +223,19 @@ func fetch(ctx context.Context, url string, into any) (found bool, err error) {
 	return true, json.Unmarshal(data, into)
 }
 
+// registryOption is the registry named on the command line, if one is.
+func registryOption(args []string) string {
+	for i, a := range args {
+		if v, ok := strings.CutPrefix(a, "--registry="); ok {
+			return v
+		}
+		if a == "--registry" && i+1 < len(args) {
+			return args[i+1]
+		}
+	}
+	return ""
+}
+
 func npmRegistry() string {
 	for _, k := range []string{"npm_config_registry", "NPM_CONFIG_REGISTRY"} {
 		if v := os.Getenv(k); v != "" {
@@ -318,6 +331,14 @@ func lookupPyPI(ctx context.Context, p pkg) facts {
 	return f
 }
 
+// RatePackage rates a package from facts supplied by the caller, as an
+// install would after asking the registry. It is for replaying a recorded
+// install, where there is no registry to ask. A zero published time means
+// the registry did not say.
+func RatePackage(name, version string, known, exists bool, published time.Time, scripts bool, now time.Time) (events.Risk, string) {
+	return rate(pkg{name: name, version: version}, facts{known: known, exists: exists, version: version, published: published, scripts: scripts, why: "it was not reachable"}, now)
+}
+
 // rate turns the facts into a rating and a sentence saying why.
 func rate(p pkg, f facts, now time.Time) (events.Risk, string) {
 	what := p.name
@@ -365,6 +386,12 @@ func gate(real, name string, args []string, specs []pkg, python bool) int {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
+	// ask the registry the install itself would use
+	if named := registryOption(args); named != "" && !python {
+		if err := os.Setenv("npm_config_registry", named); err != nil {
+			return refuse(name, err)
+		}
+	}
 	var checked []events.PackageChecked
 	stop := false
 	for _, p := range specs {

@@ -58,6 +58,8 @@ type Ledger struct {
 	Policy    Policy                  `json:"policy"`
 	// packages the agent asked to install that were new to the project
 	Packages []events.PackageChecked `json:"packages"`
+	// true when this is a recording being played back, not a live session
+	Replay bool `json:"replay"`
 }
 
 // Policy is what the session's policy files did.
@@ -199,7 +201,7 @@ func Build(evs []events.Event) (Ledger, error) {
 				return l, err
 			}
 			l.Command, l.WorkDir, l.StartedAt, l.Watching, l.Holding = d.Command, d.WorkDir, ev.Time, d.Identifiers, d.Holding
-			l.ToolVersion, l.Policy.Hash = d.ToolVersion, d.PolicyHash
+			l.ToolVersion, l.Policy.Hash, l.Replay = d.ToolVersion, d.PolicyHash, d.Replay
 			report.watched = d.InputWatched
 			for _, id := range d.Identifiers {
 				byID[id.ID] = id

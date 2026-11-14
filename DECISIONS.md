@@ -663,6 +663,53 @@ package manager will pick.
 `npm` and `gh`. For anything but an install of named packages they hand
 over to the real program at once.
 
+## Replay and bench
+
+A recording is made from a finished session's log, not captured on the
+side while the session runs. The log already has everything a replay needs
+and nothing it shouldn't keep: hosts, paths, sizes, which watched values
+were seen where, what replies named which hosts, and each held action as
+it was shown. So there is no second copy of the session to protect, and
+`rehearse record` works on any past session.
+
+A recording holds the kind of thing a request carried (`real`, `canary`,
+`secret`), never the value. A replay makes values of its own to watch for
+and puts one of the right kind back into the request, in the address for a
+`GET` and in the body otherwise, so the scan finds it the way it would in a
+live session.
+
+A replay does not go through the proxy's socket. It hands each request to
+the same object the proxy hands requests to, built the way a session
+builds it. That was chosen so that a replay cannot contact anything: a
+request that the rules let through has nowhere to go. The test for it runs
+a replay inside a network namespace that has only a loopback interface.
+
+A replayed command is the stand-in's report of it, not the command line
+run again. Running it would need the repository it was run in.
+
+Requests to the model provider are left out of recordings, apart from one
+held at the provider's door, which is recorded with the request before it
+so the two logins can be told apart.
+
+Actions allowed during a replay are marked applied with a note that
+nothing was done. Nothing is learned from a replay either: no approval is
+counted and no rule is offered.
+
+`rehearse bench` uses the rules alone, without the model, so its output is
+the same every time. The reviewer can only raise a rating, so the model
+could turn a "fine" into a held-as-high, never a "stopped" into a miss.
+
+Bench's test for "stopped" is a high-risk hold or a refused install. A
+held action still waits on the user, who may allow it. The table says what
+the rules did, and a note under it says so.
+
+The first run of each scenario, "without Rehearsal", plays it with nothing
+held and counts the steps that go ahead. It is every step. It is there so
+the two columns come from the same code and not from a sentence in a file.
+
+Scenario files are built into the binary and also read from a folder when
+one is named, so adding one is adding a file.
+
 ## Deciding and applying
 
 The six new event types are the ones the plan lists. Whether the session is

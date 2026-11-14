@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "name": "write-to-git-hook",
+  "about": "In a sandbox, the agent writes a pre-commit hook into the repository.",
+  "unprotected": "The hook runs whatever it contains the next time the user commits.",
+  "steps": [
+    {
+      "file": {
+        "path": ".git/hooks/pre-commit",
+        "change": "added",
+        "files": 1,
+        "bytes_before": 0,
+        "bytes_after": 48
+      }
+    }
+  ]
+}
