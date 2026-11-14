@@ -39,7 +39,7 @@ func newHoldingRecorder(t *testing.T) holdingRecorder {
 	}
 	holder := hold.NewHolder(log, store)
 	rec := NewRecorder(log, ident.NewMatcher(watched), []string{"api.provider.test"})
-	rec.HoldWrites(Holding{Holder: holder, Handlers: set, Allow: []string{"Telemetry.Test"}})
+	rec.HoldWrites(Holding{Holder: holder, Handlers: set, Writes: true, ProviderDoor: true, Allow: []string{"Telemetry.Test"}})
 	return holdingRecorder{rec, log, store, holder}
 }
 
@@ -138,6 +138,7 @@ func TestWhatIsHeldAndWhatIsNot(t *testing.T) {
 			h := newHoldingRecorder(t)
 			f := newFlow(t, tt.url, "x")
 			f.Request.Method = tt.method
+			f.Request.Header.Del("X-Note") // this table is about requests that carry nothing of the user's
 			h.rec.Request(f)
 
 			types := eventTypes(t, h.log)

@@ -39,6 +39,7 @@ import (
 const (
 	canaryFile   = "CANARY.txt"
 	ledgerFile   = "rehearsal-ledger.json"
+	reportFile   = "rehearsal-report.md"
 	defaultModel = "qwen3.8:27b"
 
 	envReviewerURL   = "REHEARSAL_REVIEWER_URL"
@@ -48,7 +49,9 @@ const (
 	reviewsAtOnce = 3
 )
 
-var defaultProviders = []string{"api.anthropic.com", "mcp-proxy.anthropic.com", "api.openai.com"}
+// platform.claude.com is where Claude Code renews its login. Held, that
+// request would log the agent out part-way through a long session.
+var defaultProviders = []string{"api.anthropic.com", "mcp-proxy.anthropic.com", "platform.claude.com", "api.openai.com"}
 
 // Hosts the agent reports its own telemetry to. Writes to them are not
 // held, because an agent whose telemetry fails may misbehave. They still
@@ -61,6 +64,7 @@ type options struct {
 	noOpen    bool
 
 	noHold          bool
+	noDoorCheck     bool
 	allow           []string
 	handlersDir     string
 	reviewerURL     string
@@ -100,6 +104,7 @@ func main() {
 	f.StringSliceVar(&opts.providers, "provider", defaultProviders, "hosts to treat as the model provider")
 	f.BoolVar(&opts.noOpen, "no-open", false, "do not open the page in a window")
 	f.BoolVar(&opts.noHold, "no-hold", false, "hold nothing: only record where requests go")
+	f.BoolVar(&opts.noDoorCheck, "no-provider-check", false, "do not hold requests to the model provider that use a second credential or upload a file")
 	f.StringSliceVar(&opts.allow, "allow-host", defaultAllow, "hosts whose writes are never held (the agent's own telemetry)")
 	f.StringVar(&opts.handlersDir, "handlers", "", "folder of extra handler files for stand-in answers")
 	f.StringVar(&opts.reviewerURL, "reviewer-url", os.Getenv(envReviewerURL), "OpenAI-compatible address of the local model (default: Ollama on this machine, or on the Windows host under WSL; env "+envReviewerURL+")")
@@ -157,11 +162,19 @@ func rehearse(opts options, command []string) (exitCode int, err error) {
 	}
 	canaries := ident.NewCanaries()
 	identifiers := append(own, canaries...)
-	matcher := ident.NewMatcher(identifiers)
 	var keep []string // canary values: ours, so they may be shown
 	for _, c := range canaries {
 		keep = append(keep, c.Value)
 	}
+	// Secrets are watched for but never stored: the log gets a label and
+	// a salted hash, and the values stay in memory.
+	envIDs, secrets, warn := ident.EnvSecrets(workDir)
+	if warn != nil {
+		fmt.Fprintf(os.Stderr, "rehearse: warning: could not read every .env file, so some secrets are not watched for:\n%v\n", warn)
+	}
+	identifiers = append(identifiers, envIDs...)
+	identifiers = append(identifiers, ident.FormatIdentifiers()...)
+	matcher := ident.NewMatcher(identifiers, secrets...)
 	removeCanary, err := plantCanaryFile(workDir, ident.Value(canaries, ident.IDCanaryWord))
 	if err != nil {
 		return 1, err
@@ -170,7 +183,8 @@ func rehearse(opts options, command []string) (exitCode int, err error) {
 
 	// Only the program name is stored: its arguments may contain secrets.
 	if _, err := log.Append(events.TypeSessionStarted, events.SessionStarted{
-		Command: command[:1], WorkDir: workDir, ProviderHosts: opts.providers, Identifiers: identifiers, Holding: !opts.noHold,
+		Command: command[:1], WorkDir: workDir, ProviderHosts: opts.providers, Identifiers: identifiers,
+		Holding: !opts.noHold, InputWatched: run.WatchesInput(),
 	}); err != nil {
 		return 1, err
 	}
@@ -216,7 +230,9 @@ func rehearse(opts options, command []string) (exitCode int, err error) {
 		if err != nil {
 			return 1, fmt.Errorf("load the handler files: %w", err)
 		}
-		recorders[0].HoldWrites(proxy.Holding{Holder: holder, Handlers: answers, Allow: opts.allow})
+		recorders[0].HoldWrites(proxy.Holding{
+			Holder: holder, Handlers: answers, Writes: true, Allow: opts.allow, Canaries: keep, ProviderDoor: !opts.noDoorCheck,
+		})
 
 		if reviewer, err = newReviewer(opts); err != nil {
 			return 1, err
@@ -233,7 +249,9 @@ func rehearse(opts options, command []string) (exitCode int, err error) {
 
 		// git and gh use POST for reads, so commands the stand-ins know to
 		// be read-only go through a second proxy that records but never holds.
-		passRecorder := proxy.NewRecorder(log, matcher, opts.providers)
+		// It still holds a request that carries one of the watched values.
+		passRecorder := recorders[0].Sibling()
+		passRecorder.HoldWrites(proxy.Holding{Holder: holder, Handlers: answers, Canaries: keep})
 		recorders = append(recorders, passRecorder)
 		pass, err := proxy.Start(caDir, passRecorder, proxyLog)
 		if err != nil {
@@ -287,7 +305,10 @@ func rehearse(opts options, command []string) (exitCode int, err error) {
 		}
 	}
 
-	exitCode, err = run.Command(command, env)
+	exitCode, err = run.Command(command, env, func() {
+		// a failed write here costs one line of the report, not the session
+		_, _ = log.Append(events.TypeFirstInput, events.FirstInput{})
+	})
 
 	stopIntake()
 	if holder != nil {
@@ -310,8 +331,51 @@ func rehearse(opts options, command []string) (exitCode int, err error) {
 			exitCode = 1
 		}
 	}
+	if reviewer.model != nil {
+		cleanup("add the model's notes to the report", func() error {
+			return writeNotes(log, reviewer.model, recorders[0].FinalText())
+		})
+	}
 	cleanup("write the ledger", func() error { return report(log, workDir) })
 	return exitCode, err
+}
+
+// writeNotes adds the two parts of the report that the local model
+// writes: a three-sentence summary, and the agent's closing claims set
+// against the commands it was seen to run. Both are extras. When the
+// model gives no usable answer the report has a fixed summary and no
+// claims section, so the model's errors are dropped here on purpose.
+func writeNotes(log *events.Log, model *review.Model, finalText string) error {
+	l, err := current(log)
+	if err != nil {
+		return err
+	}
+	if l.Totals.Requests == 0 && len(l.Actions) == 0 {
+		return nil // nothing happened that needs summing up
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	var notes events.ReportNotes
+	if summary, err := model.Summarise(ctx, l.Facts()); err == nil {
+		notes.Summary = summary
+	}
+	if lines := l.CommandLines(); finalText != "" && len(lines) > 0 {
+		if claims, err := model.Claims(ctx, finalText, lines); err == nil {
+			notes.ClaimsChecked = true
+			for _, c := range claims {
+				claim := events.ReportClaim{Claim: c.Claim, Verdict: string(c.Verdict)}
+				if c.Command > 0 {
+					claim.Command = l.Report.Commands[c.Command-1].Text
+				}
+				notes.Claims = append(notes.Claims, claim)
+			}
+		}
+	}
+	if notes.Summary == "" && !notes.ClaimsChecked {
+		return nil
+	}
+	_, err = log.Append(events.TypeReportNotes, notes)
+	return err
 }
 
 // reviewer is the local model, or the reason there is none.
@@ -451,7 +515,10 @@ func report(log *events.Log, workDir string) error {
 	if err := os.WriteFile(filepath.Join(workDir, ledgerFile), append(data, '\n'), 0o644); err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "\nSaved to %s\n", ledgerFile)
+	if err := os.WriteFile(filepath.Join(workDir, reportFile), []byte(l.Markdown()), 0o644); err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "\nSaved to %s and %s\n", ledgerFile, reportFile)
 	return nil
 }
 

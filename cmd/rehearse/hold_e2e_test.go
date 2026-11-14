@@ -58,6 +58,12 @@ type session struct {
 // talks to is on this machine.
 func start(t *testing.T, workDir, script string, extraEnv ...string) *session {
 	t.Helper()
+	return startWith(t, workDir, nil, script, extraEnv...)
+}
+
+// startWith is start with extra options for rehearse itself.
+func startWith(t *testing.T, workDir string, options []string, script string, extraEnv ...string) *session {
+	t.Helper()
 	bin := buildRehearse(t)
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -71,7 +77,8 @@ func start(t *testing.T, workDir, script string, extraEnv ...string) *session {
 		t: t, url: fmt.Sprintf("http://localhost:%d", port), workDir: workDir,
 		output: &output{}, done: make(chan error, 1),
 	}
-	s.cmd = exec.Command(bin, "--no-open", "--port", fmt.Sprint(port), "--", "sh", "-c", script)
+	args := append([]string{"--no-open", "--port", fmt.Sprint(port)}, options...)
+	s.cmd = exec.Command(bin, append(args, "--", "sh", "-c", script)...)
 	s.cmd.Dir = workDir
 	s.cmd.Env = cleanEnv(t, extraEnv...)
 	for _, kv := range s.cmd.Env {

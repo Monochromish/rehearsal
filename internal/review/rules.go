@@ -41,7 +41,8 @@ func rank(r events.Risk) int {
 // like secrets. Low: the few kinds marked Minor. Everything else is medium.
 func Floor(a events.ActionHeld) events.Risk {
 	switch {
-	case a.Force, a.Deletes, a.Publishes, a.ChangesAccess, len(a.IdentifierIDs) > 0, len(a.SecretFiles) > 0:
+	case a.Force, a.Deletes, a.Publishes, a.ChangesAccess, len(a.IdentifierIDs) > 0, len(a.SecretFiles) > 0,
+		a.ProviderDoor, a.Provenance != nil:
 		return events.RiskHigh
 	case a.Minor:
 		return events.RiskLow
@@ -128,8 +129,19 @@ func ByRules(a events.ActionHeld) Verdict {
 			v.Concern = "It goes to a program on this computer, not out to the internet, but that program will still act on it."
 		}
 	}
+	if a.Kind == events.ActionHTTP && !slices.Contains([]string{"POST", "PUT", "PATCH", "DELETE"}, a.Method) {
+		v.Summary = fmt.Sprintf("Fetch %s from %s.", a.Path, dest)
+		v.Concern = "Asking for a page can pass information along too, in the address and in what is sent with it."
+	}
 	if a.ChangesAccess {
 		v.Concern = "It changes who can see or change the repository, or removes a safeguard on it."
+	}
+	if a.Provenance != nil {
+		v.Concern = fmt.Sprintf("The agent learned this address from content it fetched from %s, not from you.", a.Provenance.SourceHost)
+	}
+	if a.ProviderDoor {
+		v.Summary = fmt.Sprintf("Send data to the AI provider (%s) under a different account, or as a file upload.", dest)
+		v.Concern = "Data sent this way may end up in an account that is not yours."
 	}
 	if len(a.IdentifierIDs) > 0 {
 		v.Concern = "It carries details of yours to a server that is not the AI service the agent is meant to talk to."

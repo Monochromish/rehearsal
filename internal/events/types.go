@@ -22,6 +22,14 @@ const (
 	TypeActionRefused  Type = "action_refused"
 	TypeActionApplied  Type = "action_applied"
 	TypeActionFailed   Type = "action_failed"
+
+	TypeOutsideContent Type = "outside_content"
+
+	TypeFirstInput  Type = "first_input"
+	TypeModelUsage  Type = "model_usage"
+	TypeAgentAction Type = "agent_action"
+	TypeAgentResult Type = "agent_result"
+	TypeReportNotes Type = "report_notes"
 )
 
 type Event struct {
@@ -37,13 +45,19 @@ type Kind string
 const (
 	KindReal   Kind = "real"
 	KindCanary Kind = "canary"
+	// a secret being watched for: a value from a .env file, or anything in
+	// a well-known credential format
+	KindSecret Kind = "secret"
 )
 
+// Identifier is something watched for in what leaves the machine. A
+// secret's Value is always empty: only its label and a salted hash are kept.
 type Identifier struct {
 	ID    string `json:"id"`
 	Kind  Kind   `json:"kind"`
 	Label string `json:"label"`
 	Value string `json:"value"`
+	Hash  string `json:"hash,omitempty"`
 }
 
 type Category string
@@ -69,6 +83,7 @@ const (
 	FormPlain  Form = "plain"
 	FormURL    Form = "url-encoded"
 	FormBase64 Form = "base64"
+	FormHex    Form = "hex"
 )
 
 type SessionStarted struct {
@@ -79,6 +94,9 @@ type SessionStarted struct {
 	Identifiers   []Identifier `json:"identifiers"`
 	// false with --no-hold
 	Holding bool `json:"holding"`
+	// whether the user's input passes through rehearse, so that its first
+	// key can be noticed
+	InputWatched bool `json:"input_watched"`
 }
 
 // Request never carries headers, the query string or the body.
@@ -91,6 +109,63 @@ type Request struct {
 	Category     Category `json:"category"`
 	// false when the body was too large to search
 	BodyChecked bool `json:"body_checked"`
+	// the model a request to the provider asked for, when it names one
+	Model string `json:"model,omitempty"`
+	// true when the request carries a conversation in a format whose tool
+	// calls can be read
+	Conversation bool `json:"conversation,omitempty"`
+}
+
+// FirstInput marks the first key the user pressed that was passed on to
+// the wrapped command.
+type FirstInput struct{}
+
+// ModelUsage is the token counts one reply from the provider stated. A
+// count it did not state is -1.
+type ModelUsage struct {
+	RequestID  string `json:"request_id"`
+	Model      string `json:"model"`
+	Input      int    `json:"input"`
+	Output     int    `json:"output"`
+	CacheRead  int    `json:"cache_read"`
+	CacheWrite int    `json:"cache_write"`
+}
+
+// AgentAction is something the agent did with one of its tools, read from
+// the conversation it sent to the model. Text is the command or file
+// path, with anything secret-looking masked.
+type AgentAction struct {
+	ID   string `json:"id"`
+	Tool string `json:"tool"`
+	Kind string `json:"kind"`
+	Text string `json:"text"`
+}
+
+// ReportNotes are the parts of the session report written by the local
+// model. They are absent when the model gave no usable answer.
+type ReportNotes struct {
+	// three sentences about the session
+	Summary string `json:"summary,omitempty"`
+	// true when the model compared the agent's final message with the
+	// commands observed, even if it found no claims
+	ClaimsChecked bool          `json:"claims_checked"`
+	Claims        []ReportClaim `json:"claims,omitempty"`
+}
+
+// ReportClaim is something the agent said it had done, set against what
+// was observed.
+type ReportClaim struct {
+	Claim   string `json:"claim"`
+	Verdict string `json:"verdict"`
+	// the observed command the verdict rests on, when there is one
+	Command string `json:"command,omitempty"`
+}
+
+// AgentResult is how one of those actions turned out, by the agent's own
+// report to the model.
+type AgentResult struct {
+	ID     string `json:"id"`
+	Failed bool   `json:"failed"`
 }
 
 // Response has Status 0 and Failed set when the request got no answer.
@@ -178,6 +253,40 @@ type ActionHeld struct {
 	Minor bool `json:"minor,omitempty"`
 	// the agent may have needed the real result to carry on correctly
 	NeedsRealAnswer bool `json:"needs_real_answer,omitempty"`
+
+	// goes to the model provider in a way not seen before in the session:
+	// under a different credential, or as a file upload
+	ProviderDoor bool `json:"provider_door,omitempty"`
+	// set when the destination's address first appeared in content fetched
+	// from another server
+	Provenance *Provenance `json:"provenance,omitempty"`
+	// the servers whose content had already been read, when this action's
+	// destination was first contacted after that
+	OutsideSources []string `json:"outside_sources,omitempty"`
+}
+
+// Provenance says where a destination's address was first seen.
+type Provenance struct {
+	SourceHost string `json:"source_host"`
+	// how long before this request the content was read
+	SecondsBefore int `json:"seconds_before"`
+}
+
+// OutsideContent records that a reply from a server other than the model
+// provider was read. It keeps the hostnames the reply mentions and hashes
+// of the addresses in it, never the reply itself.
+type OutsideContent struct {
+	RequestID string   `json:"request_id"`
+	Host      string   `json:"host"`
+	Bytes     int      `json:"bytes"`
+	Hosts     []string `json:"hosts"`
+	URLHashes []string `json:"url_hashes"`
+	// text a person would not see when the content is displayed
+	ZeroWidth int `json:"zero_width,omitempty"`
+	TagChars  int `json:"tag_chars,omitempty"`
+	Comments  int `json:"comments,omitempty"`
+	// a few words from the first hidden comment, with secrets masked
+	HiddenExcerpt string `json:"hidden_excerpt,omitempty"`
 }
 
 type RefState struct {

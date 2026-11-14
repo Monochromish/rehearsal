@@ -3,13 +3,16 @@ import type { Identifier } from '../api'
 
 // requests is set only when the line is about something a server received
 defineProps<{ item: Identifier & { requests?: number } }>()
+
+// a secret's value is never sent to the page, so there is none to show
+const kindWords = { real: 'yours', canary: 'planted by Rehearsal', secret: 'a secret, value not kept' }
 </script>
 
 <template>
   <div class="item">
     <span class="label">{{ item.label }}</span>
-    <span class="kind">{{ item.kind === 'canary' ? 'planted by Rehearsal' : 'yours' }}</span>
-    <span class="value">{{ item.value }}</span>
+    <span class="kind">{{ kindWords[item.kind] }}</span>
+    <span v-if="item.value !== ''" class="value">{{ item.value }}</span>
     <span v-if="item.requests !== undefined" class="kind">
       {{ item.requests === 1 ? 'in 1 request' : `in ${item.requests} requests` }}
     </span>

@@ -73,12 +73,6 @@ async function refresh(): Promise<void> {
     ledger.value = nextLedger
     held.value = nextHeld
     ledgerProblem.value = ''
-    if (nextLedger.phase === 'finished') {
-      // rehearse stops serving shortly after this, so stop the browser
-      // from reconnecting
-      subscription?.close()
-      connected.value = false
-    }
   } catch (e: unknown) {
     ledgerProblem.value = `Could not read the session from Rehearsal: ${describe(e)}. Check that rehearse is still running in your terminal. If it has exited, the final record is in rehearsal-ledger.json.`
   }
@@ -130,6 +124,10 @@ onMounted(() => {
     onEvent,
     (isConnected) => {
       connected.value = isConnected
+      // The report's last notes can arrive after the session is over, so
+      // the connection stays open until rehearse stops serving. Closing it
+      // then keeps the browser from reconnecting to nothing.
+      if (!isConnected && ledger.value?.phase === 'finished') subscription?.close()
     },
     (error) => {
       updateProblem.value = `Rehearsal sent an update this page could not read: ${error.message}. Reload the page. If it keeps happening, the page and rehearse are different versions: rebuild with sh build.sh.`

@@ -5,7 +5,9 @@ package ident
 import (
 	"bytes"
 	"encoding/base64"
+	"encoding/hex"
 	"net/url"
+	"strings"
 
 	"rehearsal/internal/events"
 )
@@ -34,25 +36,40 @@ type Matcher struct {
 	needles []needle
 }
 
-func NewMatcher(ids []events.Identifier) *Matcher {
+// NewMatcher watches for the identifiers that have a value, and for the
+// secrets, whose values are given separately because they are never put
+// in an Identifier.
+func NewMatcher(ids []events.Identifier, secrets ...Secret) *Matcher {
 	m := &Matcher{}
 	for _, id := range ids {
-		if len(id.Value) < MinLen {
-			continue
-		}
-		m.add(id.ID, events.FormPlain, []byte(id.Value), true)
-		for _, enc := range []string{url.QueryEscape(id.Value), url.PathEscape(id.Value)} {
-			if enc != id.Value {
-				m.add(id.ID, events.FormURL, []byte(enc), true)
-			}
-		}
-		if len(id.Value) >= minBase64Len {
-			for _, p := range base64Patterns([]byte(id.Value)) {
-				m.add(id.ID, events.FormBase64, p, false)
-			}
-		}
+		m.watch(id.ID, id.Value)
+	}
+	for _, s := range secrets {
+		m.watch(s.ID, s.Value)
 	}
 	return m
+}
+
+func (m *Matcher) watch(id, value string) {
+	if len(value) < MinLen {
+		return
+	}
+	m.add(id, events.FormPlain, []byte(value), true)
+	for _, enc := range []string{url.QueryEscape(value), url.PathEscape(value)} {
+		if enc != value {
+			m.add(id, events.FormURL, []byte(enc), true)
+		}
+	}
+	if len(value) >= minBase64Len {
+		for _, p := range base64Patterns([]byte(value)) {
+			m.add(id, events.FormBase64, p, false)
+		}
+		// hex in either case; as with base64, a short run of hex digits
+		// turns up by chance
+		lower := hex.EncodeToString([]byte(value))
+		m.add(id, events.FormHex, []byte(lower), false)
+		m.add(id, events.FormHex, []byte(strings.ToUpper(lower)), false)
+	}
 }
 
 func (m *Matcher) add(id string, form events.Form, pattern []byte, wholeWord bool) {

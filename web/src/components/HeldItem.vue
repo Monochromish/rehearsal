@@ -40,9 +40,20 @@ const state = computed(() => {
 
 const boxID = computed(() => `tick-${props.row.key}`)
 
+const carriedWords = { real: 'a detail of yours', canary: 'a planted value', secret: 'a secret' }
+
 function carried(item: Identifier): string {
-  return `Carries ${item.kind === 'canary' ? 'a planted value' : 'a detail of yours'}: ${item.label}`
+  return `Carries ${carriedWords[item.kind]}: ${item.label}`
 }
+
+// One sentence on where the destination's address came from. It states
+// only what was observed.
+const provenance = computed(() => {
+  const p = a.value.provenance
+  if (p === null) return ''
+  const ago = p.secondsBefore === 1 ? '1 second' : `${p.secondsBefore} seconds`
+  return `The address this is going to first appeared in a page from ${p.sourceHost}, read ${ago} earlier.`
+})
 
 function more(n: number, what: string): string {
   return n > 0 ? `and ${n} more ${what}` : ''
@@ -75,6 +86,11 @@ defineExpose({ toggleCommand: () => (open.value = !open.value) })
       <div v-if="a.secretFiles.length > 0" class="warning">
         Includes files that look like passwords or keys: {{ a.secretFiles.join(', ') }}
       </div>
+      <div v-if="provenance !== ''" class="warning">{{ provenance }}</div>
+      <div v-if="a.providerDoor" class="warning">
+        This goes to the AI provider under a different account from the one this session has used, or as a file upload.
+      </div>
+      <div v-for="item in a.carries" :key="item.id" class="warning">{{ carried(item) }}</div>
       <div v-if="outcome !== null && a.detail !== ''" class="command">{{ a.detail }}</div>
 
       <button class="link" type="button" :aria-expanded="open" @click="open = !open">
@@ -85,7 +101,7 @@ defineExpose({ toggleCommand: () => (open.value = !open.value) })
         <div v-if="row.actions.length > 1">Issued {{ row.actions.length }} times.</div>
         <div v-if="a.workDir !== ''">Run in {{ a.workDir }}</div>
         <div v-if="a.size > 0">{{ a.size }} bytes {{ a.contentType }}</div>
-        <div v-for="item in a.carries" :key="item.id">{{ carried(item) }}</div>
+        <div v-if="a.outsideSources.length > 0">Issued after the agent read content from: {{ a.outsideSources.join(', ') }}</div>
         <div v-if="a.commits.length > 0" class="list">
           <div>Changes it uploads:</div>
           <div v-for="(message, i) in a.commits" :key="i" class="entry">{{ message }}</div>

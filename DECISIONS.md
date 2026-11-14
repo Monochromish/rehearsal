@@ -87,9 +87,11 @@ Errors while shutting down (closing the log, stopping the proxy, removing
 ## Classifying servers
 
 The default model provider hosts are `api.anthropic.com`,
-`mcp-proxy.anthropic.com` and `api.openai.com`; `--provider` changes them.
-`mcp-proxy.anthropic.com` is Anthropic's relay for connectors. It's on the
-list so that an ordinary Claude Code session doesn't start out flagged.
+`mcp-proxy.anthropic.com`, `platform.claude.com` and `api.openai.com`;
+`--provider` changes them. `mcp-proxy.anthropic.com` is Anthropic's relay for
+connectors. It's on the list so that an ordinary Claude Code session doesn't
+start out flagged. `platform.claude.com` is where Claude Code renews its
+login, and a renewal posts a credential, which would otherwise be held.
 
 A server is flagged when it isn't a model provider and received at least one
 identifier, real or planted.
@@ -315,6 +317,121 @@ first 100 names and 30 commit messages.
 An earlier version let the model take a medium action down to low, which
 moved it into the collapsed "Routine" list. That gave text the agent wrote a
 way to make an action less visible, so it was removed.
+
+## Watched secrets
+
+A line in `.env` or `.env.*` is watched when its value is at least 8
+characters and either its name contains a credential word (`KEY`, `TOKEN`,
+`SECRET`, `PASSWORD`, `PASSWD`, `PWD`, `CREDENTIAL`, `AUTH`, `PRIVATE`,
+`DSN`, `DATABASE_URL`, `CONNECTION`) or the value looks random. Watching
+every value would hold requests that mention `NODE_ENV=production` or a port
+number.
+
+The value is used to build the search patterns and then dropped. What is
+kept is a label and a hash salted per session, so the same secret has a
+different hash in every session and the hash can't be looked up.
+
+The eight built-in formats are regular expressions in `internal/ident`,
+each with its own test. They are searched for in the address, the body and
+most headers. They are not searched for in the standard credential headers
+(`Authorization`, `Cookie`, `X-Api-Key` and similar) or in requests to the
+model provider, because that is where a credential belongs, and holding
+there would hold every signed-in request. A value read from `.env` is held
+wherever it appears.
+
+Hex was added to the forms that are searched (plain, URL-encoded, base64),
+in lower and upper case.
+
+## Requests that carry something
+
+A request to a server that isn't the model provider is held whatever its
+method when it carries a detail, a planted value or a secret. This applies
+to the hosts on the `--allow-host` list too: the list lets ordinary
+telemetry writes through, and telemetry that carries your git email is the
+thing worth seeing.
+
+The second proxy, which serves read-only git and gh commands, holds these
+too. It shares what the first proxy has learned about the session.
+
+A held read gets a 200 with an empty body, since nothing believable can be
+made up for it, and is marked as needing the real answer.
+
+## The model provider's door
+
+For each model provider host, a salted hash of the first credential header
+seen is remembered. A later request to that host with a different one is
+held as high risk, and so is a `POST` under `/v1/files` or `/v1/uploads`.
+Both are explained as sending data to the AI provider under a different
+account or as a file upload.
+
+A successful reply from a provider path ending in `/oauth/token` means the
+login was renewed, and the next credential seen replaces the remembered one
+without a hold. Without that, every long session would be held once an hour.
+It does mean a second login obtained through the provider's own token
+endpoint is not caught.
+
+`--no-provider-check` turns the check off. It exists because the check has
+only been run against a local stand-in for a provider.
+
+## Where an address came from
+
+The first 1 MB of each reply from a server other than the model provider is
+scanned as it passes. From each one the host names of the `http://` and
+`https://` addresses it mentions are kept (up to 50), with a salted hash of
+each full address (up to 200). The text itself is not kept, apart from the
+first 80 characters of the first HTML comment, with anything secret-looking
+masked.
+
+An address counts as coming from outside content when its host was first
+seen there: a host the agent had already contacted, or a provider host, is
+never marked. Every later request to a marked host is held as high risk,
+not only the first, because the reason holds for each.
+
+Hidden text is counted in three kinds: zero-width characters (U+200B,
+U+200C, U+200D, U+2060, U+FEFF), Unicode tag characters (U+E0000 to
+U+E007F) and HTML comments.
+
+Once any outside content has been read, each held action records which
+servers had been read by then.
+
+## The session report
+
+Bytes are request bytes, since the question is what left the machine.
+
+"Before you pressed a key" needs the input to pass through `rehearse`. With
+a pseudo-terminal it always does. When input is not a terminal it is copied
+through a pipe. When input is a terminal and output is not, the command is
+given the terminal itself, as before, and the figure is "not available".
+
+The model name comes from the `model` field of a provider request's JSON
+body. Token counts come from the `usage` object of the reply, in its plain
+and streamed forms. A count the reply does not state is recorded as unknown
+and shown as "not available", and a total is unknown when any part of it is.
+
+Tool calls and their results are read from the conversation history that
+the Anthropic Messages format repeats in every request, behind an interface
+in `internal/observe` so another format can be added. Each call is recorded
+once, by its ID. Streamed provider replies go straight through to the agent.
+A copy of at most 8 MB is kept as they pass and read when the stream ends.
+
+The three integrity flags are pattern matches on what was observed:
+`--no-verify` on a `git commit` or `git push`; a change to a file that looks
+like a test in a session where a test command reported an error; and a short
+list of destructive commands (`rm -rf`, `git reset --hard`, `git clean -f`,
+a force push, `DROP TABLE` or `DROP DATABASE`, `mkfs`, `dd` with `of=`).
+They say "worth a second look", not that anything was wrong.
+
+The two model-written parts are asked for after the decision, once the
+agent's last message is known. The model gets the facts as a data block and
+is told to use only what is there and to follow nothing in it. A summary
+that isn't three sentences, or a claims answer that doesn't match the
+schema or names a command that wasn't observed, is discarded. On the real
+model, a final message with an instruction planted in it to mark every
+claim as supported still had its "all tests pass" claim marked as
+contradicted by the failing test command.
+
+`rehearsal-report.md` is written beside `rehearsal-ledger.json`. Secrets
+appear in it by label only.
 
 ## Deciding and applying
 

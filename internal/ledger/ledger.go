@@ -6,6 +6,7 @@ package ledger
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -39,6 +40,19 @@ type Ledger struct {
 	Servers  []Server            `json:"servers"`
 	// held actions, in the order they were held
 	Actions []Action `json:"actions"`
+	// servers other than the model provider whose replies were read
+	Outside []OutsideSource `json:"outside"`
+	Report  Report          `json:"report"`
+}
+
+// OutsideSource is one server the agent read content from.
+type OutsideSource struct {
+	Host  string `json:"host"`
+	Reads int    `json:"reads"`
+	// hidden characters and comments found in what it sent
+	Hidden int `json:"hidden"`
+	// a few words from the first hidden comment
+	HiddenExcerpt string `json:"hidden_excerpt,omitempty"`
 }
 
 type Totals struct {
@@ -51,11 +65,13 @@ type Totals struct {
 }
 
 type Server struct {
-	Host      string          `json:"host"`
-	Category  events.Category `json:"category"`
-	Requests  int             `json:"requests"`
-	FirstSeen time.Time       `json:"first_seen"`
-	LastSeen  time.Time       `json:"last_seen"`
+	Host     string          `json:"host"`
+	Category events.Category `json:"category"`
+	Requests int             `json:"requests"`
+	// bytes of request bodies sent to it
+	Bytes     int64     `json:"bytes"`
+	FirstSeen time.Time `json:"first_seen"`
+	LastSeen  time.Time `json:"last_seen"`
 	// not a model provider, yet it received an identifier
 	Flagged  bool       `json:"flagged"`
 	Received []Received `json:"received"`
@@ -96,11 +112,12 @@ type Action struct {
 }
 
 func Build(evs []events.Event) (Ledger, error) {
-	l := Ledger{Phase: PhaseRunning, Watching: []events.Identifier{}, Servers: []Server{}, Actions: []Action{}}
+	l := Ledger{Phase: PhaseRunning, Watching: []events.Identifier{}, Servers: []Server{}, Actions: []Action{}, Outside: []OutsideSource{}}
 	byID := map[string]events.Identifier{}
 	servers := map[string]*Server{}
 	seenIn := map[string]map[string]bool{} // host+identifier -> request IDs
 	actions := map[string]int{}            // action ID -> index in l.Actions
+	report := newReportBuilder()
 	action := func(ev events.Event, id string) (*Action, error) {
 		i, ok := actions[id]
 		if !ok {
@@ -117,6 +134,7 @@ func Build(evs []events.Event) (Ledger, error) {
 				return l, err
 			}
 			l.Command, l.WorkDir, l.StartedAt, l.Watching, l.Holding = d.Command, d.WorkDir, ev.Time, d.Identifiers, d.Holding
+			report.watched = d.InputWatched
 			for _, id := range d.Identifiers {
 				byID[id.ID] = id
 			}
@@ -132,7 +150,37 @@ func Build(evs []events.Event) (Ledger, error) {
 			}
 			s.Requests++
 			s.LastSeen = ev.Time
+			if d.RequestBytes > 0 {
+				s.Bytes += d.RequestBytes
+			}
 			l.Totals.Requests++
+			report.request(d)
+		case events.TypeFirstInput:
+			report.inputSeen = true
+		case events.TypeModelUsage:
+			var d events.ModelUsage
+			if err := decode(ev, &d); err != nil {
+				return l, err
+			}
+			report.usage(d)
+		case events.TypeAgentAction:
+			var d events.AgentAction
+			if err := decode(ev, &d); err != nil {
+				return l, err
+			}
+			report.actions = append(report.actions, d)
+		case events.TypeAgentResult:
+			var d events.AgentResult
+			if err := decode(ev, &d); err != nil {
+				return l, err
+			}
+			report.failed[d.ID] = d.Failed
+		case events.TypeReportNotes:
+			var d events.ReportNotes
+			if err := decode(ev, &d); err != nil {
+				return l, err
+			}
+			report.notes = &d
 		case events.TypeIdentifierSeen:
 			var d events.IdentifierSeen
 			if err := decode(ev, &d); err != nil {
@@ -161,6 +209,22 @@ func Build(evs []events.Event) (Ledger, error) {
 			}
 			t, code := ev.Time, d.ExitCode
 			l.EndedAt, l.ExitCode = &t, &code
+
+		case events.TypeOutsideContent:
+			var d events.OutsideContent
+			if err := decode(ev, &d); err != nil {
+				return l, err
+			}
+			i := slices.IndexFunc(l.Outside, func(o OutsideSource) bool { return o.Host == d.Host })
+			if i < 0 {
+				l.Outside = append(l.Outside, OutsideSource{Host: d.Host})
+				i = len(l.Outside) - 1
+			}
+			l.Outside[i].Reads++
+			l.Outside[i].Hidden += d.ZeroWidth + d.TagChars + d.Comments
+			if l.Outside[i].HiddenExcerpt == "" {
+				l.Outside[i].HiddenExcerpt = d.HiddenExcerpt
+			}
 
 		case events.TypeActionHeld:
 			var d events.ActionHeld
@@ -242,6 +306,7 @@ func Build(evs []events.Event) (Ledger, error) {
 	})
 
 	l.Totals.Held = len(l.Actions)
+	l.Report = report.build()
 	l.Phase = phase(l)
 	if l.Phase == PhaseFinished {
 		for i := range l.Actions {
@@ -394,9 +459,14 @@ func (l Ledger) actionsText() string {
 	return b.String()
 }
 
-func plural(n int, word string) string {
-	if n == 1 {
-		return fmt.Sprintf("1 %s", word)
+// plural counts things in words. The plural is one with an s added unless
+// many says otherwise.
+func plural(n int, one string, many ...string) string {
+	switch {
+	case n == 1:
+		return "1 " + one
+	case len(many) > 0:
+		return fmt.Sprintf("%d %s", n, many[0])
 	}
-	return fmt.Sprintf("%d %ss", n, word)
+	return fmt.Sprintf("%d %ss", n, one)
 }

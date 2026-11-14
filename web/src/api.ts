@@ -5,7 +5,7 @@
 import { fixtureNames, fixtureSession } from './fixtures'
 import type { FixtureSession } from './fixtures'
 
-export type Kind = 'real' | 'canary'
+export type Kind = 'real' | 'canary' | 'secret'
 export type Category = 'provider' | 'other'
 export type Where = 'address' | 'header' | 'body'
 export type Phase = 'running' | 'reviewing' | 'deciding' | 'applying' | 'finished'
@@ -26,8 +26,14 @@ export type EventType =
   | 'action_refused'
   | 'action_applied'
   | 'action_failed'
+  | 'outside_content'
+  | 'first_input'
+  | 'model_usage'
+  | 'agent_action'
+  | 'agent_result'
+  | 'report_notes'
 
-const kinds: readonly Kind[] = ['real', 'canary']
+const kinds: readonly Kind[] = ['real', 'canary', 'secret']
 const categories: readonly Category[] = ['provider', 'other']
 const wheres: readonly Where[] = ['address', 'header', 'body']
 const phases: readonly Phase[] = ['running', 'reviewing', 'deciding', 'applying', 'finished']
@@ -48,6 +54,12 @@ const eventTypes: readonly EventType[] = [
   'action_refused',
   'action_applied',
   'action_failed',
+  'outside_content',
+  'first_input',
+  'model_usage',
+  'agent_action',
+  'agent_result',
+  'report_notes',
 ]
 
 export interface Identifier {
@@ -78,6 +90,34 @@ export interface Totals {
   held: number
 }
 
+export interface OutsideSource {
+  host: string
+  reads: number
+  hidden: number
+}
+
+export interface ReportClaim {
+  claim: string
+  verdict: string
+  command: string
+}
+
+/** What was observed about the session. A null figure was not stated anywhere. */
+export interface Report {
+  inputWatched: boolean
+  inputSeen: boolean
+  requestsBeforeInput: number
+  models: { name: string; requests: number }[]
+  tokens: { input: number | null; output: number | null; cacheRead: number | null; cacheWrite: number | null; cacheShare: number | null }
+  commandsKnown: boolean
+  commands: { text: string; failed: boolean | null }[]
+  flags: string[]
+  // written by the local model; empty when it gave no usable answer
+  modelSummary: string
+  claimsChecked: boolean
+  claims: ReportClaim[]
+}
+
 export interface Ledger {
   command: string[]
   phase: Phase
@@ -85,6 +125,8 @@ export interface Ledger {
   totals: Totals
   watching: Identifier[]
   servers: Server[]
+  outside: OutsideSource[]
+  report: Report
 }
 
 export interface Review {
@@ -114,6 +156,13 @@ export interface HeldAction {
   force: boolean
   deletes: boolean
   needsRealAnswer: boolean
+  // goes to the model provider under another account, or as a file upload
+  providerDoor: boolean
+  // where the destination's address was first seen, when that was in
+  // content fetched from another server
+  provenance: { sourceHost: string; secondsBefore: number } | null
+  // servers whose content had been read before this action was issued
+  outsideSources: string[]
   review: Review | null
   decision: Decision
   outcome: Outcome
@@ -258,6 +307,54 @@ function parseLedger(value: unknown): Ledger {
     },
     watching: list(from, 'watching', what, parseIdentifier),
     servers: list(from, 'servers', what, parseServer),
+    outside: list(from, 'outside', what, (item, itemWhat) => {
+      const o = fields(item, itemWhat)
+      return { host: text(o, 'host', itemWhat), reads: count(o, 'reads', itemWhat), hidden: count(o, 'hidden', itemWhat) }
+    }),
+    report: parseReport(from['report']),
+  }
+}
+
+function maybeNumber(from: Fields, key: string, what: string): number | null {
+  return from[key] === null ? null : count(from, key, what)
+}
+
+function parseReport(value: unknown): Report {
+  const what = 'ledger.report'
+  const from = fields(value, what)
+  const before = fields(from['before_input'], `${what}.before_input`)
+  const tokens = fields(from['tokens'], `${what}.tokens`)
+  const notes = from['notes'] === null ? null : fields(from['notes'], `${what}.notes`)
+  return {
+    inputWatched: flag(before, 'watched', what),
+    inputSeen: flag(before, 'input_seen', what),
+    requestsBeforeInput: count(before, 'requests', what),
+    models: list(from, 'models', what, (item, itemWhat) => {
+      const m = fields(item, itemWhat)
+      return { name: text(m, 'name', itemWhat), requests: count(m, 'requests', itemWhat) }
+    }),
+    tokens: {
+      input: maybeNumber(tokens, 'input', what),
+      output: maybeNumber(tokens, 'output', what),
+      cacheRead: maybeNumber(tokens, 'cache_read', what),
+      cacheWrite: maybeNumber(tokens, 'cache_write', what),
+      cacheShare: maybeNumber(tokens, 'cache_share', what),
+    },
+    commandsKnown: flag(from, 'commands_known', what),
+    commands: list(from, 'commands', what, (item, itemWhat) => {
+      const c = fields(item, itemWhat)
+      return { text: text(c, 'text', itemWhat), failed: c['failed'] === null ? null : flag(c, 'failed', itemWhat) }
+    }),
+    flags: list(from, 'flags', what, word),
+    modelSummary: notes === null ? '' : maybeText(notes, 'summary', what),
+    claimsChecked: notes === null ? false : flag(notes, 'claims_checked', what),
+    claims:
+      notes === null || notes['claims'] === undefined
+        ? []
+        : list(notes, 'claims', what, (item, itemWhat) => {
+            const c = fields(item, itemWhat)
+            return { claim: text(c, 'claim', itemWhat), verdict: text(c, 'verdict', itemWhat), command: maybeText(c, 'command', itemWhat) }
+          }),
   }
 }
 
@@ -270,6 +367,11 @@ function parseReview(value: unknown, what: string): Review {
     source: oneOf(from, 'source', reviewSources, what),
     note: maybeText(from, 'note', what),
   }
+}
+
+function parseProvenance(value: unknown, what: string): { sourceHost: string; secondsBefore: number } {
+  const from = fields(value, what)
+  return { sourceHost: text(from, 'source_host', what), secondsBefore: count(from, 'seconds_before', what) }
 }
 
 function parseAction(value: unknown, what: string): HeldAction {
@@ -297,6 +399,9 @@ function parseAction(value: unknown, what: string): HeldAction {
     force: maybeFlag(from, 'force', what),
     deletes: maybeFlag(from, 'deletes', what),
     needsRealAnswer: maybeFlag(from, 'needs_real_answer', what),
+    providerDoor: maybeFlag(from, 'provider_door', what),
+    provenance: from['provenance'] === undefined ? null : parseProvenance(from['provenance'], `${what}.provenance`),
+    outsideSources: maybeWords(from, 'outside_sources', what),
     review: from['review'] === null ? null : parseReview(from['review'], `${what}.review`),
     decision: oneOf(from, 'decision', decisions, what),
     outcome: oneOf(from, 'outcome', outcomes, what),

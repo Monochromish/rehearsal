@@ -37,15 +37,18 @@ func ProxyEnv(proxyURL, caCertPath string) []string {
 // The command gets a pseudo-terminal only when we are attached to a
 // terminal ourselves; otherwise input and output pass straight through, so
 // pipes keep working.
-func Command(command []string, extraEnv []string) (int, error) {
+//
+// onFirstInput is called once, when the first byte of the user's input is
+// passed on to the command. See WatchesInput for when that can be seen.
+func Command(command []string, extraEnv []string, onFirstInput func()) (int, error) {
 	cmd := exec.Command(command[0], command[1:]...)
 	cmd.Env = append(os.Environ(), extraEnv...)
 
 	var waitErr, ourErr error
 	if term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stdout.Fd())) {
-		waitErr, ourErr = runInPTY(cmd)
+		waitErr, ourErr = runInPTY(cmd, onFirstInput)
 	} else {
-		waitErr, ourErr = runPlain(cmd)
+		waitErr, ourErr = runPlain(cmd, onFirstInput)
 	}
 	if ourErr != nil {
 		return 1, ourErr
@@ -63,8 +66,39 @@ func Command(command []string, extraEnv []string) (int, error) {
 	return 0, nil
 }
 
-func runPlain(cmd *exec.Cmd) (waitErr, ourErr error) {
+// WatchesInput reports whether the user's input passes through us, so
+// that its first byte can be noticed. It does not in one case: input from
+// a terminal with output going elsewhere. There the command is given the
+// terminal itself, because a pipe in its place would change how it behaves.
+func WatchesInput() bool {
+	return !term.IsTerminal(int(os.Stdin.Fd())) || term.IsTerminal(int(os.Stdout.Fd()))
+}
+
+// noting passes input through and calls first when the first byte goes by.
+type noting struct {
+	in    io.Reader
+	first func()
+}
+
+func (n *noting) Read(p []byte) (int, error) {
+	c, err := n.in.Read(p)
+	if c > 0 && n.first != nil {
+		n.first()
+		n.first = nil
+	}
+	return c, err
+}
+
+func runPlain(cmd *exec.Cmd, onFirstInput func()) (waitErr, ourErr error) {
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+	var stdin io.WriteCloser
+	if WatchesInput() {
+		cmd.Stdin = nil
+		var err error
+		if stdin, err = cmd.StdinPipe(); err != nil {
+			return nil, fmt.Errorf("connect input to %s: %w", cmd.Path, err)
+		}
+	}
 	// Ctrl+C reaches the command directly (same terminal group). We ignore
 	// it ourselves so we are still here to print the ledger afterwards.
 	signal.Ignore(syscall.SIGINT)
@@ -72,12 +106,21 @@ func runPlain(cmd *exec.Cmd) (waitErr, ourErr error) {
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("start %s: %w", cmd.Path, err)
 	}
+	if stdin != nil {
+		go func() {
+			// Both of these end with an error in the ordinary course of
+			// things: the command exits, or stops reading, before our own
+			// input ends. Neither says anything went wrong.
+			_, _ = io.Copy(stdin, &noting{in: os.Stdin, first: onFirstInput})
+			_ = stdin.Close()
+		}()
+	}
 	stop := forward(cmd, syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()
 	return cmd.Wait(), nil
 }
 
-func runInPTY(cmd *exec.Cmd) (waitErr, ourErr error) {
+func runInPTY(cmd *exec.Cmd, onFirstInput func()) (waitErr, ourErr error) {
 	ptmx, err := pty.Start(cmd)
 	if err != nil {
 		return nil, fmt.Errorf("start %s in a terminal: %w", cmd.Path, err)
@@ -118,7 +161,7 @@ func runInPTY(cmd *exec.Cmd) (waitErr, ourErr error) {
 
 	// This copy ends with an error whenever the session does (the terminal
 	// closes under it), so its error says nothing useful.
-	go func() { _, _ = io.Copy(ptmx, os.Stdin) }()
+	go func() { _, _ = io.Copy(ptmx, &noting{in: os.Stdin, first: onFirstInput}) }()
 
 	drained := make(chan error, 1)
 	go func() {

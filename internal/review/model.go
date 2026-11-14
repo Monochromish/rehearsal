@@ -218,6 +218,12 @@ func describe(a events.ActionHeld, carries []string, excerpt string) string {
 	if len(a.SecretFiles) > 0 {
 		fmt.Fprintf(&b, "note: these file names look like passwords or keys: %s\n", strings.Join(a.SecretFiles, ", "))
 	}
+	if a.ProviderDoor {
+		b.WriteString("note: this goes to the AI provider under a different account from the one used so far, or is a file upload\n")
+	}
+	if a.Provenance != nil {
+		fmt.Fprintf(&b, "note: the address this goes to first appeared in content fetched from %s, %d seconds earlier\n", a.Provenance.SourceHost, a.Provenance.SecondsBefore)
+	}
 	if a.Force {
 		b.WriteString("note: this overwrites what is on the far side (a force push)\n")
 	}

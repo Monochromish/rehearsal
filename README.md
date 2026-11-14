@@ -45,10 +45,44 @@ While the agent runs, these are held instead of performed:
   that write.
 - Any `POST`, `PUT`, `PATCH` or `DELETE` request to a server that isn't the
   model provider.
+- Any request at all, `GET` included, to a server that isn't the model
+  provider, when its address, headers or body carries one of your details, a
+  planted value or a watched secret.
+- Any request to a server whose address the agent first saw inside content it
+  fetched from somewhere else.
+- A request to the model provider that uses a different login from the first
+  one seen in the session, or that uploads a file.
 
-The agent is told the action succeeded, so it carries on. Everything else
-passes straight through: other git, npm and gh commands, and `GET` and `HEAD`
-requests, which show up in the ledger as before.
+The agent is told the action succeeded, so it carries on. A held `GET` gets
+an empty answer and is labelled, because the agent may have needed the real
+one. Everything else passes straight through: other git, npm and gh
+commands, and ordinary `GET` and `HEAD` requests, which show up in the ledger
+as before.
+
+### Watched secrets
+
+At start-up `rehearse` reads `.env` and `.env.*` in the working folder. A
+value is watched when it is at least 8 characters long and either its name
+says it is a credential (`KEY`, `TOKEN`, `SECRET`, `PASSWORD` and the like)
+or the value looks random. It also watches for well-known credential shapes
+anywhere in a request: AWS access keys, GitHub tokens, Stripe keys, OpenAI
+and Anthropic keys, Slack tokens, private key headers and JSON web tokens.
+
+A secret's value is never kept. The log, the page and the reports hold a
+label ("Value of STRIPE_KEY from .env") and a salted hash, nothing else.
+
+Values are found in plain, URL-encoded, base64 and hex form. A value that is
+encrypted, hashed, split up or encoded any other way is not found.
+
+### Where an address came from
+
+Every reply from a server that isn't the model provider is scanned, on a
+copy, for the addresses it mentions and for hidden text (zero-width
+characters, Unicode tag characters and HTML comments). When the agent later
+contacts a server whose address first appeared in such a reply, the request
+is held as high risk and its row says so: "The address this is going to
+first appeared in a page from example.net, read 40 seconds earlier." That
+states what was observed. It doesn't prove the page caused the request.
 
 When the agent exits, `rehearse` stays running and the page lists what was
 held, in three groups: "Look at these" (high risk), "Probably fine" (medium)
@@ -69,6 +103,36 @@ A held push is not sent if its branch has moved since it was held, because you
 would be approving something other than what you were shown.
 
 `--no-hold` turns all of this off and leaves only the ledger.
+
+## The session report
+
+When the session is over, the page and `rehearsal-report.md` say what was
+observed, and only that:
+
+- What left your computer: servers, requests and bytes, the model provider
+  apart from everything else, and which details and secrets reached which
+  server.
+- How many requests went out before you pressed a key.
+- Which models saw the session, with any other than the most-used one
+  pointed out.
+- Tokens in, out, read from cache and written to cache, and the share served
+  from cache.
+- The shell commands the agent ran and whether each reported an error, with
+  a note on anything worth a second look: `--no-verify` on a commit or push,
+  test files changed in a session where a test command failed, or a
+  destructive command.
+- Content read from other servers, with counts of hidden text.
+- Held actions and what was decided.
+
+A figure that could not be read says "not available". It is never shown as
+zero. Commands and token counts are read from the Anthropic Messages format
+only; other providers' sessions show "not available" for those.
+
+With a local model, the report adds two things written by it, both labelled:
+a three-sentence summary, and "Claimed versus observed", which lists what the
+agent's last message said it did and whether an observed command supports or
+contradicts each claim. That section is experimental. Without a model the
+summary comes from a fixed template and the claims section is left out.
 
 ## The reviewer
 
@@ -174,7 +238,8 @@ On WSL the page opens in its own Edge window. Anywhere else, open the address
 | Option | What it does |
 |---|---|
 | `--no-hold` | Hold nothing. Only record where requests go. |
-| `--provider HOST` | Treat `HOST` as a model provider. Repeat it or separate hosts with commas. Default: `api.anthropic.com`, `mcp-proxy.anthropic.com`, `api.openai.com`. |
+| `--provider HOST` | Treat `HOST` as a model provider. Repeat it or separate hosts with commas. Default: `api.anthropic.com`, `mcp-proxy.anthropic.com`, `platform.claude.com`, `api.openai.com`. |
+| `--no-provider-check` | Don't hold requests to the model provider that use a second login or upload a file. |
 | `--allow-host HOST` | Never hold writes to `HOST`. Default: `http-intake.logs.us5.datadoghq.com`, where Claude Code sends its own telemetry. |
 | `--handlers DIR` | Folder of extra handler files. |
 | `--reviewer-url URL` | Address of the local model. |
@@ -186,7 +251,8 @@ On WSL the page opens in its own Edge window. Anywhere else, open the address
 Options go before the agent command. Everything after it is passed to the
 agent untouched.
 
-Add `rehearsal-ledger.json` and `CANARY.txt` to your project's `.gitignore`.
+Add `rehearsal-ledger.json`, `rehearsal-report.md` and `CANARY.txt` to your
+project's `.gitignore`.
 
 ## How it works
 
@@ -241,9 +307,29 @@ for it, and `rehearse` says so when it exits.
 - Git and read-only `gh` commands use `POST` for reads, so they go through a
   second proxy that records but never holds. Other `npm` and unrecognised `gh`
   commands don't, and a read they make with `POST` gets a stand-in answer.
-- It only finds values it can read. Anything encrypted, hashed, hex-encoded or
-  split across requests is missed. Values shorter than 4 characters aren't
-  searched for at all. Replies and WebSocket messages aren't inspected.
+- It only finds values it can read. Anything encrypted, hashed or split
+  across requests is missed. Values shorter than 4 characters aren't searched
+  for at all. WebSocket messages aren't inspected.
+- A credential in a standard credential header (`Authorization`, `Cookie`,
+  `X-Api-Key` and similar) is not held on its shape alone, or every signed-in
+  request would be. A value from your `.env` is held wherever it appears,
+  including there.
+- Addresses in fetched content are found only when written with `http://` or
+  `https://`. A bare host name in a page is not picked up. Any later request
+  to an address a page mentioned is held, a harmless link included, so a
+  session that browses a lot will hold a lot.
+- The check on the model provider's login and the hold on addresses from
+  fetched content have only been run against local stand-in servers, not a
+  full agent session. If either holds something it shouldn't, the row says
+  why, and `--no-provider-check` turns the first one off.
+- The agent's commands and token counts are read from requests in the
+  Anthropic Messages format. The samples the tests use were written by hand
+  from the published format, not captured from a session.
+- Requests before your first key press are counted by watching the input on
+  its way to the agent. When input comes from a terminal and output goes to a
+  file or a pipe, the agent is given the terminal itself and the count says
+  "not available". When no input ever arrives, every request counts and the
+  report says so.
 - HTTPS to a bare IP address (`https://127.0.0.1:8443`) fails through the
   proxy. Names such as `localhost` work.
 - The wrapped command is told to trust only Rehearsal's certificate, so a tool
@@ -265,10 +351,10 @@ runs gofmt, `go vet`, staticcheck, the front-end type check and build, and the
 Go tests under the race detector. It needs a C compiler and
 [staticcheck](https://staticcheck.dev/).
 
-One test needs a real model and is skipped unless you point it at one:
+A few tests need a real model and are skipped unless you point them at one:
 
 ```
-REHEARSAL_LIVE_MODEL_URL=http://192.168.96.1:11434/v1 go test -run LiveModel ./internal/review
+REHEARSAL_LIVE_MODEL_URL=http://192.168.96.1:11434/v1 go test -run TestLive ./internal/review
 ```
 
 | Path | What is there |
@@ -276,14 +362,15 @@ REHEARSAL_LIVE_MODEL_URL=http://192.168.96.1:11434/v1 go test -run LiveModel ./i
 | `cmd/rehearse` | The command and the end-to-end tests |
 | `handlers` | Stand-in answers for held requests, one file per service |
 | `internal/events` | Event types and the append-only SQLite log |
-| `internal/ident` | Collecting identifiers, making canaries, the matcher |
+| `internal/ident` | Collecting identifiers, making canaries, watched secrets, the matcher |
+| `internal/observe` | Reading models, token counts and tool calls out of provider traffic |
 | `internal/redact` | Masking anything that looks like a credential |
 | `internal/proxy` | The intercepting proxy: recording and holding requests |
 | `internal/standin` | What runs when the agent calls `git`, `npm` or `gh` |
 | `internal/hold` | Held actions and the private store that can replay them |
 | `internal/review` | The local-model reviewer and the rules it can't go below |
 | `internal/apply` | Performing approved actions |
-| `internal/ledger` | Building the ledger from the log |
+| `internal/ledger` | Building the ledger and the session report from the log |
 | `internal/server` | The local API and the page |
 | `internal/run` | Launching the agent with a pseudo-terminal |
 | `web` | The page (Vue 3, TypeScript, Vite) |

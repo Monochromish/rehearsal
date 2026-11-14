@@ -1,0 +1,13 @@
+{
+  "id": "msg_02",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-haiku-4-5",
+  "content": [
+    {"type": "text", "text": "Done. "},
+    {"type": "tool_use", "id": "toolu_07", "name": "Bash", "input": {"command": "ls"}},
+    {"type": "text", "text": "Nothing else is needed."}
+  ],
+  "stop_reason": "end_turn",
+  "usage": {"input_tokens": 950, "output_tokens": 14}
+}

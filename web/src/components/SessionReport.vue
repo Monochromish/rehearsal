@@ -34,6 +34,45 @@ const traffic = computed(() => {
 
 const timeline = computed(() => props.events.filter((e) => e.what !== ''))
 
+const commandsOpen = ref(false)
+const r = computed(() => props.ledger.report)
+
+function shown(n: number | null): string {
+  return n === null ? 'not available' : n.toLocaleString()
+}
+
+const beforeInput = computed(() => {
+  if (!r.value.inputWatched) return 'Requests before you pressed a key: not available.'
+  const n = r.value.requestsBeforeInput
+  const sent = n === 1 ? '1 request was' : `${n} requests were`
+  return r.value.inputSeen ? `${sent} sent before you pressed a key.` : `${sent} sent, and no input ever reached the agent.`
+})
+
+const models = computed(() => {
+  const list = r.value.models
+  const first = list[0]
+  if (first === undefined) return 'Models that saw your session: not available.'
+  const rest = list.slice(1).map((m) => `${m.name} (${m.requests})`)
+  const main = `Model: ${first.name}, ${first.requests === 1 ? '1 request' : `${first.requests} requests`}.`
+  return rest.length === 0 ? main : `${main} Also used: ${rest.join(', ')}.`
+})
+
+const tokens = computed(() => {
+  const t = r.value.tokens
+  const share = t.cacheShare === null ? 'not available' : `${t.cacheShare}%`
+  return `Tokens: ${shown(t.input)} in, ${shown(t.output)} out, ${shown(t.cacheRead)} read from cache, ${shown(t.cacheWrite)} written to cache. Served from cache: ${share}.`
+})
+
+const outside = computed(() =>
+  `Content read from other servers: ${props.ledger.outside.map((o) => (o.hidden > 0 ? `${o.host} (${o.hidden} hidden)` : o.host)).join(', ')}.`,
+)
+
+const commandsLine = computed(() => {
+  if (!r.value.commandsKnown) return 'What the agent did: not available.'
+  const n = r.value.commands.length
+  return n === 1 ? 'The agent ran 1 shell command.' : `The agent ran ${n} shell commands.`
+})
+
 function clock(time: string): string {
   const d = new Date(time)
   return Number.isNaN(d.getTime()) ? time : d.toLocaleTimeString()
@@ -71,6 +110,34 @@ async function copy(): Promise<void> {
         <div class="data">{{ dataSent(row.first) }}</div>
         <div :class="`decision decision-${outcomeOf(row.first)?.tone ?? 'plain'}`">
           {{ outcomeOf(row.first)?.word ?? 'Undecided' }}
+        </div>
+      </div>
+    </div>
+
+    <div class="observed">
+      <h2 class="heading">What was observed</h2>
+      <div v-if="r.modelSummary !== ''" class="fact">
+        {{ r.modelSummary }} <span class="aside">(Summary written by an AI model on this computer.)</span>
+      </div>
+      <div class="fact">{{ beforeInput }}</div>
+      <div class="fact">{{ models }}</div>
+      <div class="fact">{{ tokens }}</div>
+      <div v-if="ledger.outside.length > 0" class="fact">{{ outside }}</div>
+      <div class="fact">
+        {{ commandsLine }}
+        <button v-if="r.commands.length > 0" class="link" type="button" :aria-expanded="commandsOpen" @click="commandsOpen = !commandsOpen">
+          {{ commandsOpen ? 'Hide commands' : 'Show commands' }}
+        </button>
+      </div>
+      <div v-if="commandsOpen" class="block">
+        <div v-for="(c, i) in r.commands" :key="i">{{ c.text }} ({{ c.failed === null ? 'result not reported' : c.failed ? 'reported an error' : 'ok' }})</div>
+      </div>
+      <div v-for="flag in r.flags" :key="flag" class="fact fact-high">Worth a second look: {{ flag }}</div>
+      <div v-if="r.claimsChecked" class="claims">
+        <div class="fact">Claimed versus observed (experimental, written by an AI model on this computer):</div>
+        <div v-if="r.claims.length === 0" class="fact">The agent's final message made no claim the commands bear on.</div>
+        <div v-for="(c, i) in r.claims" :key="i" class="fact">
+          "{{ c.claim }}": {{ c.verdict }}<span v-if="c.command !== ''" class="aside"> ({{ c.command }})</span>
         </div>
       </div>
     </div>
@@ -205,6 +272,38 @@ async function copy(): Promise<void> {
 
 .decision-plain {
   color: var(--secondary);
+}
+
+.observed {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 24px;
+}
+
+.heading {
+  margin: 0;
+  margin-bottom: 8px;
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.fact {
+  margin-bottom: 4px;
+  font-size: 16px;
+}
+
+.fact-high {
+  color: var(--high);
+}
+
+.aside {
+  color: var(--secondary);
+}
+
+.claims {
+  display: flex;
+  flex-direction: column;
+  margin-top: 8px;
 }
 
 .footer {
