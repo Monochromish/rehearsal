@@ -6,6 +6,8 @@
 
 # Session output
 rehearsal-ledger.json
+rehearsal-report.md
+rehearsal-attestation.json
 CANARY.txt
 *.db
 *.db-shm

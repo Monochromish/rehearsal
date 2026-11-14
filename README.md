@@ -1,8 +1,8 @@
 # Rehearsal
 
-Rehearsal wraps an AI coding agent in one command. It shows you every server
-the agent contacted and which of your details reached each one, and it holds
-the agent's risky outward actions until you approve them.
+Rehearsal wraps an AI coding agent in one command, shows you where its
+requests and your data go, and holds anything it does that reaches outside
+your machine until you have looked at it and said yes.
 
 ```
 rehearse claude
@@ -13,8 +13,47 @@ and opens a page that updates as requests go out. When the agent exits, the
 page becomes a decision screen: each held action is explained in a sentence,
 ranked by risk, and performed only if you tick it.
 
-With `--sandbox`, which is experimental, the agent's changes to your files
-are held back the same way.
+What it does today:
+
+- Lists every server the agent contacted and which of your details, planted
+  values and secrets reached each one.
+- Holds pushes, publishes, GitHub changes and requests that write, and any
+  request that carries something of yours, until you decide.
+- Checks a package against its registry before a new install runs, and stops
+  the install if the package is brand new or runs a script.
+- Says where an address came from when the agent learned it from a page it
+  fetched and not from you.
+- Reports what the session did: requests, models, tokens, the commands the
+  agent ran and whether they failed.
+- Lets a project, and an organisation above it, write rules for all of this
+  in a file.
+- Keeps a record of the session that can't be edited without it showing, and
+  signs a statement about it that a pull request can carry.
+- With `--sandbox`, which is experimental, holds back the agent's changes to
+  your files the same way, and cuts off any network that doesn't go through
+  it.
+
+## How this differs from an agent's own permission modes
+
+An agent's permission prompts and "auto" modes are the agent deciding about
+itself. Rehearsal is a separate program around the agent:
+
+- It runs outside the agent. It sees requests and commands as they leave,
+  whatever the agent decided, and it works the same if the agent was told to
+  skip its own prompts.
+- It covers what leaves the machine by any route through it: the agent's own
+  requests, and those of every script and tool the agent starts. A permission
+  prompt covers the command, not what the command goes on to do.
+- It doesn't depend on which agent it is. Anything that honours the usual
+  proxy settings is covered. It has been run with Claude Code and with shell
+  scripts standing in for an agent, and with nothing else.
+- It shows where data went, by server, which an allow-or-deny prompt doesn't.
+- It keeps a record that someone else can check, and that the agent can't
+  write to when it runs in the sandbox.
+
+It is not a replacement for those prompts. It doesn't look at what the agent
+does on your machine unless you use the sandbox, and without the sandbox a
+program that ignores the proxy settings gets past it. See "Current limits".
 
 ## What it shows
 
@@ -38,20 +77,24 @@ tokens are never written to the ledger.
 
 While the agent runs, these are held instead of performed:
 
-- `git push`, in any form.
-- `npm publish`.
+- `git push`, in any form. Other people and automated systems act on what
+  is pushed, and a force push can erase their work.
+- `npm publish`. A published version is public at once.
 - `gh` commands that create or change something: `pr create`, `issue
   comment`, `release create`, `repo delete` and the like, and `gh api` calls
-  that write.
+  that write. They change what other people see, and some can't be undone.
 - Any `POST`, `PUT`, `PATCH` or `DELETE` request to a server that isn't the
-  model provider.
+  model provider. The server acts on it.
 - Any request at all, `GET` included, to a server that isn't the model
   provider, when its address, headers or body carries one of your details, a
-  planted value or a watched secret.
+  planted value or a watched secret. A read can carry data out as well as a
+  write can.
 - Any request to a server whose address the agent first saw inside content it
-  fetched from somewhere else.
+  fetched from somewhere else. Text in a fetched page is the usual way an
+  agent is steered by someone other than you.
 - A request to the model provider that uses a different login from the first
-  one seen in the session, or that uploads a file.
+  one seen in the session, or that uploads a file. The destination is one
+  you trust, and the account may not be yours.
 
 The agent is told the action succeeded, so it carries on. A held `GET` gets
 an empty answer and is labelled, because the agent may have needed the real
@@ -516,7 +559,9 @@ your own; a file for a host that already has one replaces it.
 ## Install
 
 Linux, or WSL2 on Windows. You need [Go](https://go.dev/dl/) 1.27 or newer and
-[Node.js](https://nodejs.org/) 26 or newer. Nothing needs root.
+[Node.js](https://nodejs.org/) 26 or newer. Nothing needs root. `--sandbox`
+also needs bubblewrap, and the local reviewer needs a model server such as
+Ollama; both are optional.
 
 ```
 git clone <this repository>
@@ -554,12 +599,37 @@ On WSL the page opens in its own Edge window. Anywhere else, open the address
 Options go before the agent command. Everything after it is passed to the
 agent untouched.
 
-`verify`, `export`, `attest`, `verify-attestation`, `policy`, `record`,
-`replay` and `bench` are commands of `rehearse` itself. To wrap a program that has one of those names, give its
-path: `rehearse ./verify`.
-
 Add `rehearsal-ledger.json`, `rehearsal-report.md` and `CANARY.txt` to your
 project's `.gitignore`.
+
+### Commands
+
+Besides wrapping an agent, `rehearse` has commands of its own. Each is
+described in the section named.
+
+| Command | What it does | Section |
+|---|---|---|
+| `rehearse <agent...>` | Wrap an agent for one session. | this one |
+| `rehearse verify [session]` | Check that a session's record has not been changed since it was signed. | A record others can check |
+| `rehearse export [session] --format jsonl` | Print a session's log, one JSON object per line. | A record others can check |
+| `rehearse attest [session]` | Write a signed statement about a session. | A record others can check |
+| `rehearse verify-attestation <file> --key <key>` | Check a signed statement against a public key. | A record others can check |
+| `rehearse policy check` | Print the policy in force here and any rule with no effect. | The policy file |
+| `rehearse record [session]` | Save a finished session as a recording. | Replaying a session |
+| `rehearse replay <recording>` | Play a recording back with no agent and no network. | Replaying a session |
+| `rehearse bench` | Play the scenarios and print what was stopped. | Scenarios |
+
+A session is named by its folder under `~/.local/state/rehearsal/sessions`,
+and the most recent one is used when none is named. To wrap a program that
+shares a name with one of these commands, give its path: `rehearse ./verify`.
+
+### Adding to it
+
+- A stand-in answer for a service: a handler file. See "Stand-in answers".
+- A rule for a project or an organisation: a line in a policy file. See "The
+  policy file".
+- A scenario for `rehearse bench`: a JSON file in `scenarios/`. See
+  "Scenarios".
 
 ## How it works
 
@@ -567,18 +637,23 @@ project's `.gitignore`.
 certificate authority kept in `~/.local/state/rehearsal/ca`. It launches the
 agent as a child process with the proxy and the certificate set through
 environment variables (`HTTPS_PROXY`, `NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`
-and so on), and with stand-ins for `git`, `npm` and `gh` first on its `PATH`.
-Only that process and its children are affected, and nothing is installed
-system-wide.
+and so on), and with stand-ins for `git`, `npm`, `gh`, `pnpm`, `yarn`, `pip`
+and `uv` first on its `PATH`. Only that process and its children are
+affected, and nothing is installed system-wide.
 
 Every request becomes a row in an append-only SQLite log, and so does every
-held action and what became of it. The page, the terminal summary and the JSON
-file are all built from that log.
+held action and what became of it. Each row carries the hash of the one
+before. The page, the terminal summary, the JSON file and the report are all
+built from that log.
 
 A stand-in is the `rehearse` binary under another name. It hands every command
 it doesn't hold to the real program. For one it does hold, it records the
 folder, the arguments and any input, prints what the real command prints on
-success, and exits 0.
+success, and exits 0. For an install of a new package it asks the registry
+first, and either stops with the reason or hands over to the real program.
+
+Every held action passes one point, where the built-in rules and then the
+policy files decide whether it is held, let through or refused.
 
 What is needed to replay a held action, including a held request's full body
 and headers, is kept in the session's private folder with owner-only
@@ -609,8 +684,9 @@ for it, and `rehearse` says so when it exits.
   destination "public", which nothing in the action said. Read the exact
   command, not only the explanation.
 - Decisions are accepted only after the agent has exited and only from the
-  Rehearsal page. A process the agent left running in the background could
-  still send one, because nothing isolates it yet.
+  Rehearsal page. Without `--sandbox`, a process the agent left running in
+  the background could still send one. Inside the sandbox the page can't be
+  reached.
 - A held request with a body over 32 MB is refused, not held.
 - Git and read-only `gh` commands use `POST` for reads, so they go through a
   second proxy that records but never holds. Other `npm` and unrecognised `gh`
@@ -667,8 +743,14 @@ for it, and `rehearse` says so when it exits.
   final state, but reloading it fails. Use `rehearsal-ledger.json` after that.
 - The ledger file holds your real details (the values being watched for). It
   stays on your machine. Don't commit it.
-- It has been run on one setup: Ubuntu 26.04 under WSL2 on ARM64, with Claude
-  Code. Every automated test talks only to servers on the same machine.
+- A replay shows what the rules do with a recording. It doesn't reproduce
+  what servers answered or what the agent would have done next.
+- It has been run on one setup: Ubuntu 26.04 under WSL2 on ARM64. Only the
+  ledger and the holds on pushes have been run with Claude Code itself.
+  Everything added since (secrets and addresses from fetched content, the
+  report's commands and tokens, the record, the sandbox, the policy file,
+  the package check, replay) has been run with shell scripts standing in for
+  an agent. Every automated test talks only to servers on the same machine.
 
 ## Development
 
@@ -695,7 +777,7 @@ REHEARSAL_LIVE_MODEL_URL=http://192.168.96.1:11434/v1 go test -run TestLive ./in
 | `internal/observe` | Reading models, token counts and tool calls out of provider traffic |
 | `internal/redact` | Masking anything that looks like a credential |
 | `internal/proxy` | The intercepting proxy: recording and holding requests |
-| `internal/standin` | What runs when the agent calls `git`, `npm` or `gh` |
+| `internal/standin` | What runs when the agent calls `git`, `gh` or a package manager |
 | `internal/hold` | Held actions and the private store that can replay them |
 | `internal/review` | The local-model reviewer and the rules it can't go below |
 | `internal/apply` | Performing approved actions |

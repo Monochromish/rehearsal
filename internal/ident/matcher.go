@@ -155,7 +155,7 @@ func startsWord(text []byte, start int, first byte) bool {
 		return true
 	}
 	// The letter or digit before us may be the tail of an escape and not
-	// part of a word: "%2Fhiman" (URL escape) or "\nhiman" (JSON escape).
+	// part of a word: "%2Fadal" (URL escape) or "\nadal" (JSON escape).
 	if start >= 3 && text[start-3] == '%' && isHex(text[start-2]) && isHex(text[start-1]) {
 		return true
 	}

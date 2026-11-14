@@ -29,6 +29,21 @@ that must never end up in a repository.
 
 The certificate authority is generated once and reused by later sessions.
 
+Also under the state folder: `recordings/`, where `rehearse record` writes
+unless told otherwise, and `approvals.json`, the count of what has been
+allowed before, which rule offers are made from. A session's sandbox layer,
+when it has one, is in its session folder.
+
+The signing key is the one thing kept elsewhere, in
+`$XDG_CONFIG_HOME/rehearsal` (by default `~/.config/rehearsal`). State can be
+deleted without losing anything that matters. The key can't.
+
+In the working folder `rehearse` writes `rehearsal-ledger.json` and
+`rehearsal-report.md`, and `rehearse attest` writes
+`rehearsal-attestation.json`. Nothing else is written there, apart from
+`CANARY.txt` for the length of a session and, when you accept an offered
+rule, one line in `.rehearsal/policy.yaml`.
+
 go-mitmproxy can't report which port it bound, so we find a free port first
 and hand it over. If another program takes that port in between, the proxy
 fails to start and says why.
@@ -72,7 +87,8 @@ hold secrets.
 
 The watched values themselves, your real ones included, appear on the page
 and in `rehearsal-ledger.json`. Both are local. This repository's
-`.gitignore` keeps the JSON file out of version control.
+`.gitignore` keeps the JSON file out of version control. Secrets are the
+exception: only a label and a salted hash of each are ever kept.
 
 ## When recording fails
 
