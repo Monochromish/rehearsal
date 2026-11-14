@@ -15,6 +15,13 @@ const (
 	TypeResponse       Type = "response"
 	TypeIdentifierSeen Type = "identifier_seen"
 	TypeSessionEnded   Type = "session_ended"
+
+	TypeActionHeld     Type = "action_held"
+	TypeActionReviewed Type = "action_reviewed"
+	TypeActionApproved Type = "action_approved"
+	TypeActionRefused  Type = "action_refused"
+	TypeActionApplied  Type = "action_applied"
+	TypeActionFailed   Type = "action_failed"
 )
 
 type Event struct {
@@ -70,6 +77,8 @@ type SessionStarted struct {
 	WorkDir       string       `json:"work_dir"`
 	ProviderHosts []string     `json:"provider_hosts"`
 	Identifiers   []Identifier `json:"identifiers"`
+	// false with --no-hold
+	Holding bool `json:"holding"`
 }
 
 // Request never carries headers, the query string or the body.
@@ -103,4 +112,104 @@ type IdentifierSeen struct {
 
 type SessionEnded struct {
 	ExitCode int `json:"exit_code"`
+}
+
+type ActionKind string
+
+const (
+	ActionGitPush    ActionKind = "git-push"
+	ActionNpmPublish ActionKind = "npm-publish"
+	ActionGh         ActionKind = "gh"
+	ActionHTTP       ActionKind = "http"
+)
+
+type Risk string
+
+const (
+	RiskLow    Risk = "low"
+	RiskMedium Risk = "medium"
+	RiskHigh   Risk = "high"
+)
+
+// ActionHeld is what may be shown about a held action. Anything that looks
+// like a secret is already masked in it. The exact arguments, headers and
+// body needed to replay the action stay in the session's private folder.
+type ActionHeld struct {
+	ID   string     `json:"id"`
+	Kind ActionKind `json:"kind"`
+
+	// stand-in commands
+	WorkDir    string   `json:"work_dir,omitempty"`
+	Command    []string `json:"command,omitempty"`
+	StdinBytes int      `json:"stdin_bytes,omitempty"`
+	// git push: each local ref being pushed and the commit it pointed at
+	Refs []RefState `json:"refs,omitempty"`
+	// git push: files added or changed by the commits being pushed, and
+	// those commits' first lines. Long lists are cut, with the rest counted.
+	Files          []string `json:"files,omitempty"`
+	FilesOmitted   int      `json:"files_omitted,omitempty"`
+	Commits        []string `json:"commits,omitempty"`
+	CommitsOmitted int      `json:"commits_omitted,omitempty"`
+	// the pushed files whose names look like secrets, never cut
+	SecretFiles []string `json:"secret_files,omitempty"`
+
+	// held requests
+	RequestID    string `json:"request_id,omitempty"`
+	Method       string `json:"method,omitempty"`
+	Host         string `json:"host,omitempty"`
+	Path         string `json:"path,omitempty"`
+	RequestBytes int64  `json:"request_bytes,omitempty"`
+	ContentType  string `json:"content_type,omitempty"`
+
+	Destination string `json:"destination"`
+	// what is being sent, in a few words: "branch main", "left-pad@1.0.1"
+	Subject       string   `json:"subject,omitempty"`
+	IdentifierIDs []string `json:"identifier_ids"`
+	Force         bool     `json:"force,omitempty"`
+	// removes something on the far side: a repository, release, branch or tag
+	Deletes   bool `json:"deletes,omitempty"`
+	Publishes bool `json:"publishes,omitempty"`
+	// the agent may have needed the real result to carry on correctly
+	NeedsRealAnswer bool `json:"needs_real_answer,omitempty"`
+}
+
+type RefState struct {
+	Ref    string `json:"ref"`
+	Commit string `json:"commit"`
+}
+
+type ReviewSource string
+
+const (
+	ReviewByModel ReviewSource = "model"
+	ReviewByRules ReviewSource = "rules"
+)
+
+type ActionReviewed struct {
+	ActionID string       `json:"action_id"`
+	Summary  string       `json:"summary"`
+	Risk     Risk         `json:"risk"`
+	Concern  string       `json:"concern"`
+	Source   ReviewSource `json:"source"`
+	// why the model's answer was not used, when Source is rules
+	Note string `json:"note,omitempty"`
+}
+
+type ActionApproved struct {
+	ActionID string `json:"action_id"`
+}
+
+type ActionRefused struct {
+	ActionID string `json:"action_id"`
+}
+
+type ActionApplied struct {
+	ActionID string `json:"action_id"`
+	Detail   string `json:"detail"`
+}
+
+type ActionFailed struct {
+	ActionID string `json:"action_id"`
+	Reason   string `json:"reason"`
+	Detail   string `json:"detail,omitempty"`
 }
