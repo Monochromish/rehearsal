@@ -1,0 +1,26 @@
+{
+  "host": "localhost",
+  "about": "The local test server used by the end-to-end tests and the demo. Not a real service.",
+  "responses": [
+    {
+      "method": "POST",
+      "path": "/upload",
+      "status": 201,
+      "content_type": "application/json",
+      "body": "{\"stored\":true}"
+    },
+    {
+      "method": "POST",
+      "path": "/tickets",
+      "status": 201,
+      "content_type": "application/json",
+      "body": "{\"created\":true}",
+      "needs_real_answer": true
+    },
+    {
+      "method": "DELETE",
+      "path": "/files/*",
+      "status": 204
+    }
+  ]
+}
