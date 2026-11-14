@@ -13,8 +13,8 @@ and opens a page that updates as requests go out. When the agent exits, the
 page becomes a decision screen: each held action is explained in a sentence,
 ranked by risk, and performed only if you tick it.
 
-This is milestone 2 of 3. Rehearsing file changes on a copy of the project is
-still to build.
+With `--sandbox`, which is experimental, the agent's changes to your files
+are held back the same way.
 
 ## What it shows
 
@@ -133,6 +133,76 @@ a three-sentence summary, and "Claimed versus observed", which lists what the
 agent's last message said it did and whether an observed command supports or
 contradicts each claim. That section is experimental. Without a model the
 summary comes from a fixed template and the claims section is left out.
+
+## Rehearsing file changes (experimental)
+
+```
+rehearse --sandbox claude
+```
+
+With `--sandbox` the agent runs inside [bubblewrap](https://github.com/containers/bubblewrap),
+which has to be installed (`sudo apt install bubblewrap`). It is off by
+default and has only been run with shell scripts standing in for an agent.
+
+Inside the sandbox:
+
+- The project folder is the real one with a layer on top. The agent reads
+  your files and writes its own versions into the layer. Your real files are
+  not touched while it runs.
+- The rest of the file system is read-only, `/tmp` is a fresh empty one, and
+  Rehearsal's own state and signing key are not visible at all.
+- A few folders under your home stay writable for real, because the agent
+  keeps its login and history there and stops working without them:
+  `~/.claude`, `~/.claude.json`, `~/.codex`, `~/.cache` and `~/.npm`, those
+  of them that exist. `--sandbox-write PATH` adds another.
+- There is no network except a path to the Rehearsal proxy. A program that
+  ignores the proxy settings cannot connect to anything, and names are only
+  looked up by the proxy. If `rehearse` dies, that path dies with it.
+
+When the agent exits, the decision screen has a "File changes" group: one
+row per file added, changed or deleted, with a tick box and the change
+itself behind "Show changes". A folder that is new, or gone, is one row. So
+is everything git wrote for itself under `.git`, which is where the agent's
+commits are until you allow that row. Allowed changes are copied into the
+real project before any held push is sent.
+
+A change is refused, with nothing written, if the real file was modified
+after the session started. You would be getting something other than what
+you were shown.
+
+Some paths are always high risk and start unticked, and a write to one
+shows under "Unusual" within a couple of seconds, while the agent is still
+running:
+
+- the agent's own settings and hooks (`.claude/settings.json`,
+  `.claude/hooks/`, `.mcp.json` and the like)
+- shell start-up files (`.bashrc`, `.zshrc`, `.profile` and others)
+- git's settings and hooks (`.git/config`, `.git/hooks/`, `.husky/`)
+- build configuration (`.github/workflows/`, `.gitlab-ci.yml`,
+  `Jenkinsfile` and others)
+- SSH keys and settings (`.ssh/`, `authorized_keys`)
+- programs that start by themselves (`.config/systemd/`,
+  `.config/autostart/`)
+
+A file whose name suggests a secret, and any deletion in a session that
+deletes ten files or more, is high risk too.
+
+What it doesn't do:
+
+- It can't see what the agent reads. Your SSH keys and cloud credentials
+  are readable inside the sandbox, as they are outside it, and a read of
+  them is not reported.
+- The writable folders under your home are written for real. A change to
+  the agent's settings there (`~/.claude/settings.json`) is reported under
+  "Unusual", but it has already happened.
+- There are no snapshots per turn and no undo. Each session has one layer,
+  and you decide on what is in it at the end.
+- If you refuse git's own row and allow a push, the push is not sent: the
+  commits it needs are not in the real repository.
+- If `rehearse` is killed, the agent carries on without a network and its
+  changes stay in the session's folder. `rehearse verify` says when that
+  happened. Nothing in the session's log can, since the process that writes
+  the log is the one that died.
 
 ## A record others can check
 
@@ -275,6 +345,8 @@ On WSL the page opens in its own Edge window. Anywhere else, open the address
 | `--no-hold` | Hold nothing. Only record where requests go. |
 | `--provider HOST` | Treat `HOST` as a model provider. Repeat it or separate hosts with commas. Default: `api.anthropic.com`, `mcp-proxy.anthropic.com`, `platform.claude.com`, `api.openai.com`. |
 | `--no-provider-check` | Don't hold requests to the model provider that use a second login or upload a file. |
+| `--sandbox` | Experimental. Keep the agent's file changes in a layer until you allow them, and cut off any network that doesn't go through Rehearsal. |
+| `--sandbox-write PATH` | With `--sandbox`: another path outside the project the agent may write to for real. |
 | `--allow-host HOST` | Never hold writes to `HOST`. Default: `http-intake.logs.us5.datadoghq.com`, where Claude Code sends its own telemetry. |
 | `--handlers DIR` | Folder of extra handler files. |
 | `--reviewer-url URL` | Address of the local model. |
@@ -321,10 +393,11 @@ for it, and `rehearse` says so when it exits.
 
 ## Current limits
 
-- Holding depends on the agent using the proxy and the stand-ins. A program
-  that ignores the proxy settings, calls `/usr/bin/git` by its full path, or
-  pushes over SSH with its own client is not held. Isolation that can't be
-  bypassed is planned, not built.
+- Without `--sandbox`, holding depends on the agent using the proxy and the
+  stand-ins. A program that ignores the proxy settings, calls `/usr/bin/git`
+  by its full path, or pushes over SSH with its own client is not held. With
+  `--sandbox` such a program has no network to use. It can still call
+  `/usr/bin/git` directly, and what it does that way is not held.
 - The agent is given a stand-in answer, not the real one. If it needs the real
   result to continue, for example the number of a pull request it just opened,
   what it does next may be wrong. These actions are labelled on the page.
@@ -418,6 +491,7 @@ REHEARSAL_LIVE_MODEL_URL=http://192.168.96.1:11434/v1 go test -run TestLive ./in
 | `internal/apply` | Performing approved actions |
 | `internal/ledger` | Building the ledger and the session report from the log |
 | `internal/record` | The signing key, the signed checkpoint and attestations |
+| `internal/sandbox` | Running the agent under bubblewrap, and its file changes |
 | `docs` | The record and attestation formats |
 | `internal/server` | The local API and the page |
 | `internal/run` | Launching the agent with a pseudo-terminal |

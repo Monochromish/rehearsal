@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import type { Identifier } from '../api'
+import { getDiff } from '../api'
 import type { Row } from '../present'
 import { outcomeOf, riskWords } from '../present'
 
@@ -24,6 +25,33 @@ watch(
     open.value = risk === 'high'
   },
 )
+
+// A file change shows its diff where other rows show their command. The
+// text is fetched the first time the row is opened.
+const isFile = computed(() => a.value.file !== null)
+const changes = ref<{ state: 'unread' | 'reading' | 'read' | 'failed'; text: string }>({ state: 'unread', text: '' })
+
+async function readChanges(): Promise<void> {
+  changes.value = { state: 'reading', text: '' }
+  try {
+    changes.value = { state: 'read', text: await getDiff(a.value.id) }
+  } catch (e: unknown) {
+    changes.value = { state: 'failed', text: e instanceof Error ? e.message : String(e) }
+  }
+}
+
+watch(
+  open,
+  (isOpen) => {
+    if (isOpen && isFile.value && changes.value.state === 'unread') void readChanges()
+  },
+  { immediate: true },
+)
+
+const openLabel = computed(() => {
+  if (isFile.value) return open.value ? 'Hide changes' : 'Show changes'
+  return open.value ? 'Hide command' : 'Show command'
+})
 
 const reviewer = computed(() => {
   const review = a.value.review
@@ -94,9 +122,14 @@ defineExpose({ toggleCommand: () => (open.value = !open.value) })
       <div v-if="outcome !== null && a.detail !== ''" class="command">{{ a.detail }}</div>
 
       <button class="link" type="button" :aria-expanded="open" @click="open = !open">
-        {{ open ? 'Hide command' : 'Show command' }}
+        {{ openLabel }}
       </button>
-      <div v-if="open" class="command">
+      <div v-if="open && isFile" class="command">
+        <div v-if="changes.state === 'reading'">Reading the change.</div>
+        <div v-if="changes.state === 'failed'">The change could not be shown: {{ changes.text }}</div>
+        <div v-if="changes.state === 'read'">{{ changes.text === '' ? 'The two versions are the same as text. Only the file type or its permissions changed.' : changes.text }}</div>
+      </div>
+      <div v-if="open && !isFile" class="command">
         <div>{{ a.exact }}</div>
         <div v-if="row.actions.length > 1">Issued {{ row.actions.length }} times.</div>
         <div v-if="a.workDir !== ''">Run in {{ a.workDir }}</div>

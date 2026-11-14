@@ -44,7 +44,11 @@ func Floor(a events.ActionHeld) events.Risk {
 	case a.Force, a.Deletes, a.Publishes, a.ChangesAccess, len(a.IdentifierIDs) > 0, len(a.SecretFiles) > 0,
 		a.ProviderDoor, a.Provenance != nil:
 		return events.RiskHigh
-	case a.Minor:
+	case a.File != nil && a.File.Sensitive != "":
+		return events.RiskHigh
+	// An ordinary change to the project's files is what the agent is for,
+	// and nothing leaves the machine by it.
+	case a.Minor, a.File != nil:
 		return events.RiskLow
 	}
 	return events.RiskMedium
@@ -80,6 +84,10 @@ func SecretLooking(paths []string) []string {
 // ByRules describes an action without a model. Its risk is the floor.
 func ByRules(a events.ActionHeld) Verdict {
 	v := Verdict{Risk: Floor(a), Source: events.ReviewByRules}
+	if a.File != nil {
+		v.Summary, v.Concern = fileChange(*a.File, a.SecretFiles)
+		return v
+	}
 	dest := a.Destination
 	if dest == "" {
 		dest = "another server"
@@ -150,6 +158,35 @@ func ByRules(a events.ActionHeld) Verdict {
 		v.Concern = fmt.Sprintf("It includes files that look like passwords or keys (%s), which would then be readable by everyone with access to that copy.", strings.Join(a.SecretFiles, ", "))
 	}
 	return v
+}
+
+// fileChange describes a change waiting in the sandbox.
+func fileChange(f events.FileChange, secretFiles []string) (summary, concern string) {
+	what := f.Path
+	if f.Dir {
+		what = fmt.Sprintf("the folder %s (%d files)", f.Path, f.Files)
+	}
+	switch {
+	case f.Path == ".git" && f.Dir:
+		summary = fmt.Sprintf("Update git's own record of the project (%d files): the commits, branches and staged changes the agent made.", f.Files)
+		concern = "Without it, a push you allow below has nothing to send."
+	case f.Change == "added":
+		summary = fmt.Sprintf("Add %s to your project.", what)
+		concern = "It is written into your real project folder only if you allow it."
+	case f.Change == "deleted":
+		summary = fmt.Sprintf("Delete %s from your project.", what)
+		concern = "It is removed from your real project folder, and Rehearsal keeps no copy."
+	default:
+		summary = fmt.Sprintf("Change %s in your project.", what)
+		concern = "The agent's version replaces yours in your real project folder only if you allow it."
+	}
+	if len(secretFiles) > 0 {
+		concern = fmt.Sprintf("The name suggests passwords or keys (%s).", strings.Join(secretFiles, ", "))
+	}
+	if f.Sensitive != "" {
+		concern = f.Sensitive
+	}
+	return summary, concern
 }
 
 func isThisMachine(hostport string) bool {

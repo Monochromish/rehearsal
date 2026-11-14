@@ -498,6 +498,71 @@ The tool version is a constant in `cmd/rehearse`, now `0.3.0`, written into
 every session's first entry. The attestation states the version that
 recorded the session, not the one that made the attestation.
 
+## The sandbox
+
+The sandbox has a network namespace of its own, so the proxy's port on this
+machine isn't reachable from inside it. A Unix socket is a file and is. So
+`rehearse` listens on a socket for each proxy and passes connections to the
+proxy's port, and the first process inside the sandbox (the `rehearse`
+binary again, started with `__sandbox-init`) listens on the same address
+the proxy has outside and passes connections to the socket. The agent's
+proxy settings are the same in and out of the sandbox.
+
+Nothing else is relayed. The page and its decision API, the local model and
+every other port on this machine are unreachable from inside.
+
+The sockets are in a folder under the temporary directory, not the session
+folder, because a Unix socket's path can be 107 bytes at most.
+
+bubblewrap is run without `--die-with-parent`. If `rehearse` dies the agent
+keeps running, with no network, and its work stays in the layer. Killing
+the agent with it would have been as safe but would throw away whatever it
+was in the middle of.
+
+The plan says to record the loss of network as an event. The process that
+writes events is the one that has died, and making the log writable from
+inside the sandbox would let the agent write to it. So the sandbox's first
+process holds a connection to `rehearse` open, and when it closes while the
+agent is still running it writes the time to a file in the one folder of
+ours it can write to. `rehearse verify` reports it.
+
+A file change is a held action of kind `file`, so reviewing, deciding,
+applying and the record all work as for a push. It is described by the
+rules and never sent to the model: the rating depends on the path, and a
+file's contents may hold anything.
+
+Ordinary file changes are rated low. The rule that anything unlisted is at
+least medium was written for actions that leave the machine, and a change
+to the project's files is what the agent is for. The page still shows them
+in a group of their own and not folded into "Routine".
+
+A new folder is one row, not one per file, so that `npm install` is not
+three thousand rows. Its row is high risk if any file in it would be.
+
+Everything under `.git` other than `config` and `hooks/` is one row. Its
+files mean nothing one at a time.
+
+Whether a real file changed during the session is decided by comparing its
+modification time with that of `CANARY.txt`, which is written into the
+project when the session starts. Both times come from the same file system,
+which matters on a Windows drive, where the clock is not this machine's.
+
+Allowed file changes are applied before held commands and requests,
+whatever order they were held in, because a held push needs the commits.
+
+The layer is deleted at the end of the session unless an allowed change
+failed to apply. Then it is the only copy of the agent's work and its path
+is printed.
+
+Deletions appear in the layer as character devices numbered 0:0, and a
+folder that was deleted and made again carries the `user.overlay.opaque`
+attribute. Both were checked on this machine's kernel (6.18) before the
+code was written.
+
+Reads cannot be observed with this design. Nothing claims they can.
+
+Per-turn snapshots, `rehearse undo` and `rehearse turns` are not built.
+
 ## Deciding and applying
 
 The six new event types are the ones the plan lists. Whether the session is

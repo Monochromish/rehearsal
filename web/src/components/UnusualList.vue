@@ -18,7 +18,8 @@ interface Line {
 
 // Held: an action kept back for a decision. Noted: something that already
 // happened and is worth knowing, a server outside the model provider that
-// received one of your details.
+// received one of your details, or a write to a file that decides what
+// runs on this computer.
 const lines = computed<Line[]>(() => [
   ...props.ledger.servers
     .filter((s) => s.flagged)
@@ -30,6 +31,14 @@ const lines = computed<Line[]>(() => [
         word: 'Noted',
       }),
     ),
+  ...props.ledger.sensitive.map(
+    (w): Line => ({
+      key: `write-${w.path}`,
+      title: `${props.agent} wrote to ${w.path}`,
+      route: w.real ? `${w.reason} This one has already taken effect.` : `${w.reason} It is waiting in the sandbox for your decision.`,
+      word: 'Noted',
+    }),
+  ),
   ...props.held.actions.map(
     (a): Line => ({ key: a.id, title: plainTitle(a), route: route(a, props.agent), word: 'Held' }),
   ),

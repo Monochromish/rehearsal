@@ -35,12 +35,23 @@ watch(
   { immediate: true },
 )
 
+// File changes get a group of their own, whatever their rating: they are
+// about this computer, and the other groups are about what leaves it.
 function rows(risk: Risk): Row[] {
   return rowsFor(
-    props.held.actions.filter((a) => a.review !== null && riskOf(a) === risk),
+    props.held.actions.filter((a) => a.review !== null && a.file === null && riskOf(a) === risk),
     props.agent,
   )
 }
+
+const fileRows = computed(() => {
+  const all = rowsFor(
+    props.held.actions.filter((a) => a.review !== null && a.file !== null),
+    props.agent,
+  )
+  const careful = (r: Row): boolean => r.risk === 'high'
+  return [...all.filter(careful), ...all.filter((r) => !careful(r))]
+})
 
 // not yet described, so not yet in any risk group
 const unread = computed(() =>
@@ -125,6 +136,11 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
       </div>
     </div>
 
+    <div v-if="fileRows.length > 0" class="group">
+      <h2 class="heading">File changes</h2>
+      <HeldItem v-for="row in fileRows" :key="row.key" :row="row" :ticked="isTicked(row)" :can-decide="canDecide" @toggle="toggle" />
+    </div>
+
     <div v-if="unread.length > 0" class="group">
       <h2 class="heading">Still being read</h2>
       <HeldItem v-for="row in unread" :key="row.key" :row="row" :ticked="false" :can-decide="false" @toggle="toggle" />
@@ -138,7 +154,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
     </div>
     <div v-if="!decided" class="hint">
       Nothing here has happened yet.
-      {{ held.phase === 'deciding' ? 'Keys: j and k move, space ticks, enter shows the command.' : 'You can decide once every action has been read.' }}
+      {{ held.phase === 'deciding' ? 'Keys: j and k move, space ticks, enter shows the command or the changes.' : 'You can decide once every action has been read.' }}
     </div>
   </div>
 </template>

@@ -25,6 +25,14 @@ type Applier struct {
 	Store *hold.Store
 	// planted canary values, which may be shown in a command's output
 	Keep []string
+	// makes an approved file change in the real project; nil when the
+	// session had no sandbox
+	Files FileApplier
+}
+
+// FileApplier copies one change out of the sandbox's layer.
+type FileApplier interface {
+	Apply(events.FileChange) error
 }
 
 // outcome of one action: Reason is empty when it was applied.
@@ -45,9 +53,12 @@ func (a *Applier) Run(ctx context.Context, approved []events.ActionHeld) (applie
 	}
 	for _, act := range approved {
 		var out outcome
-		if act.Kind == events.ActionHTTP {
+		switch {
+		case act.Kind == events.ActionFile:
+			out = a.file(act)
+		case act.Kind == events.ActionHTTP:
 			out = a.send(ctx, client, act)
-		} else {
+		default:
 			out = a.run(ctx, act)
 		}
 		if out.reason != "" {
@@ -60,6 +71,16 @@ func (a *Applier) Run(ctx context.Context, approved []events.ActionHeld) (applie
 		applied++
 	}
 	return applied, false, nil
+}
+
+func (a *Applier) file(act events.ActionHeld) outcome {
+	if a.Files == nil || act.File == nil {
+		return outcome{reason: "this file change has no sandbox to be copied from"}
+	}
+	if err := a.Files.Apply(*act.File); err != nil {
+		return outcome{reason: err.Error()}
+	}
+	return outcome{}
 }
 
 // run performs a held command again with the real program, in the folder

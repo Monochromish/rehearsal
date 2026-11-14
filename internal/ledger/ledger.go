@@ -50,6 +50,11 @@ type Ledger struct {
 	Commits *events.CommitsCreated `json:"commits"`
 	// whether the event log's chain of hashes recomputes. Set by FromLog.
 	Record Record `json:"record"`
+	// how the agent was confined; nil when it ran without a sandbox
+	Sandbox *events.SandboxStarted `json:"sandbox"`
+	// writes to paths that decide what runs on this machine, as they were
+	// noticed
+	Sensitive []events.SensitiveWrite `json:"sensitive"`
 }
 
 // Record is the state of the log the ledger was built from.
@@ -147,7 +152,10 @@ type Action struct {
 }
 
 func Build(evs []events.Event) (Ledger, error) {
-	l := Ledger{Phase: PhaseRunning, Watching: []events.Identifier{}, Servers: []Server{}, Actions: []Action{}, Outside: []OutsideSource{}}
+	l := Ledger{
+		Phase: PhaseRunning, Watching: []events.Identifier{}, Servers: []Server{}, Actions: []Action{},
+		Outside: []OutsideSource{}, Sensitive: []events.SensitiveWrite{},
+	}
 	byID := map[string]events.Identifier{}
 	servers := map[string]*Server{}
 	seenIn := map[string]map[string]bool{} // host+identifier -> request IDs
@@ -193,6 +201,18 @@ func Build(evs []events.Event) (Ledger, error) {
 			report.request(d)
 		case events.TypeFirstInput:
 			report.inputSeen = true
+		case events.TypeSandboxStarted:
+			var d events.SandboxStarted
+			if err := decode(ev, &d); err != nil {
+				return l, err
+			}
+			l.Sandbox = &d
+		case events.TypeSensitiveWrite:
+			var d events.SensitiveWrite
+			if err := decode(ev, &d); err != nil {
+				return l, err
+			}
+			l.Sensitive = append(l.Sensitive, d)
 		case events.TypeCommitsCreated:
 			var d events.CommitsCreated
 			if err := decode(ev, &d); err != nil {

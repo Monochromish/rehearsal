@@ -33,7 +33,10 @@ const nouns: Record<HeldAction['kind'], [string, string]> = {
   'npm-publish': ['publish', 'publishes'],
   gh: ['GitHub command', 'GitHub commands'],
   http: ['request', 'requests'],
+  file: ['file change', 'file changes'],
 }
+
+const fileVerbs = { added: 'Add', changed: 'Change', deleted: 'Delete' }
 
 /** What the action would do, in plain words. */
 export function plainTitle(a: HeldAction): string {
@@ -49,11 +52,19 @@ export function plainTitle(a: HeldAction): string {
       return `Run "gh ${a.subject}" on ${to.replace('GitHub repository ', '').replace('GitHub, for ', '')}`
     case 'http':
       return a.deletes ? `Ask ${to} to delete something` : `Send ${bytes(a.size)} to ${to}`
+    case 'file': {
+      const f = a.file
+      if (f === null) return a.exact
+      if (f.path === '.git' && f.dir) return "Update git's record of the project"
+      const what = f.dir ? `the folder ${f.path} (${plural(f.files, 'file', 'files')})` : f.path
+      return `${fileVerbs[f.change]} ${what}`
+    }
   }
 }
 
 /** "what, from where -> where", for the monospace line. */
 export function route(a: HeldAction, agent: string): string {
+  if (a.file !== null) return `${a.file.change}, the sandbox -> ${a.workDir}/${a.file.path}`
   const what = a.kind === 'http' ? a.exact.replace(a.destination, '') : a.exact.split(' ').slice(0, a.kind === 'gh' ? 3 : 2).join(' ')
   return `${what}, ${a.workDir || agent} -> ${a.destination}`
 }
@@ -87,7 +98,7 @@ export function decisionLabel(allowed: HeldAction[], refused: number): string {
   const parts = [
     [allowed.filter((a) => a.kind === 'npm-publish').length, 'publish', 'publishes'],
     [allowed.filter((a) => a.force).length, 'force push', 'force pushes'],
-    [allowed.filter((a) => a.deletes).length, 'deletion', 'deletions'],
+    [allowed.filter((a) => a.deletes || a.file?.change === 'deleted').length, 'deletion', 'deletions'],
   ] as const
   const irreversible = parts.filter(([n]) => n > 0).map(([n, one, many]) => plural(n, one, many))
   let label = refused === 0 ? `Allow all ${allowed.length}` : `Allow ${allowed.length}, refuse ${refused}`
@@ -114,6 +125,7 @@ export const riskWords: Record<Risk, string> = { high: 'High', medium: 'Medium',
 
 /** What of the user's an action carries, for the report table. */
 export function dataSent(a: HeldAction): string {
+  if (a.file !== null) return 'Nothing: it stays on this computer'
   if (a.carries.length > 0) return a.carries.map((c) => c.label).join(', ')
   if (a.secretFiles.length > 0) return `Files that look like secrets: ${a.secretFiles.join(', ')}`
   if (a.files.length > 0) return plural(a.files.length + a.filesOmitted, 'file', 'files')
@@ -122,7 +134,7 @@ export function dataSent(a: HeldAction): string {
 }
 
 function unusual(ledger: Ledger): number {
-  return ledger.totals.flagged_servers + ledger.totals.held
+  return ledger.totals.flagged_servers + ledger.totals.held + ledger.sensitive.length
 }
 
 /** The one sentence at the top of the page. */

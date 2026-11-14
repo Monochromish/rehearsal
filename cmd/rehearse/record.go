@@ -17,6 +17,7 @@ import (
 	"rehearsal/internal/events"
 	"rehearsal/internal/ledger"
 	"rehearsal/internal/record"
+	"rehearsal/internal/sandbox"
 )
 
 const attestationFile = "rehearsal-attestation.json"
@@ -175,6 +176,11 @@ func verifySession(w io.Writer, name string) (err error) {
 		return err
 	}
 	defer func() { err = errors.Join(err, log.Close()) }()
+	// The sandbox's own first process leaves this note when rehearse dies
+	// under it. rehearse itself was not there to write it to the log.
+	if at, cut := sandbox.NetworkCut(filepath.Join(dir, "sandbox")); cut {
+		fmt.Fprintf(w, "The sandbox noted at %s that Rehearsal had stopped while the agent was still running. The agent had no network from then on.\n", at.Format(time.RFC3339))
+	}
 	if !verdict.OK() {
 		return refusal(verdict)
 	}

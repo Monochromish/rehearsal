@@ -32,6 +32,9 @@ const (
 	TypeReportNotes Type = "report_notes"
 
 	TypeCommitsCreated Type = "commits_created"
+
+	TypeSandboxStarted Type = "sandbox_started"
+	TypeSensitiveWrite Type = "sensitive_write"
 )
 
 type Event struct {
@@ -215,6 +218,8 @@ const (
 	ActionNpmPublish ActionKind = "npm-publish"
 	ActionGh         ActionKind = "gh"
 	ActionHTTP       ActionKind = "http"
+	// a change the agent made to the project's files inside the sandbox
+	ActionFile ActionKind = "file"
 )
 
 type Risk string
@@ -282,6 +287,41 @@ type ActionHeld struct {
 	// the servers whose content had already been read, when this action's
 	// destination was first contacted after that
 	OutsideSources []string `json:"outside_sources,omitempty"`
+
+	// set for a file change made in the sandbox
+	File *FileChange `json:"file,omitempty"`
+}
+
+// FileChange is one change to the project waiting in the sandbox's layer:
+// a file, or a whole folder that was added or deleted.
+type FileChange struct {
+	// relative to the project, with forward slashes
+	Path string `json:"path"`
+	// added, changed or deleted
+	Change string `json:"change"`
+	Dir    bool   `json:"dir,omitempty"`
+	// how many files the change covers
+	Files       int   `json:"files"`
+	BytesBefore int64 `json:"bytes_before"`
+	BytesAfter  int64 `json:"bytes_after"`
+	// why the path is one to look at closely, when it is
+	Sensitive string `json:"sensitive,omitempty"`
+}
+
+// SensitiveWrite records, while the agent is still running, that it wrote
+// to a path that can change how tools on this machine behave.
+type SensitiveWrite struct {
+	Path   string `json:"path"`
+	Reason string `json:"reason"`
+	// true when the write was to a folder the sandbox leaves writable, so it
+	// has already taken effect; false when it is waiting in the layer
+	Real bool `json:"real,omitempty"`
+}
+
+// SandboxStarted records how the agent was confined.
+type SandboxStarted struct {
+	// paths outside the project that the agent could write to for real
+	Writable []string `json:"writable"`
 }
 
 // Provenance says where a destination's address was first seen.

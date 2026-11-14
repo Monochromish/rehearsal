@@ -1,5 +1,6 @@
 // Package server serves the page and the local API behind it:
-// GET /api/ledger, GET /api/events, GET /api/held and POST /api/apply.
+// GET /api/ledger, GET /api/events, GET /api/held, GET /api/diff and
+// POST /api/apply.
 package server
 
 import (
@@ -7,12 +8,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"mime"
 	"net"
 	"net/http"
 	"slices"
 	"strconv"
+	"sync"
 	"time"
 
 	"rehearsal/internal/events"
@@ -28,6 +31,35 @@ type Server struct {
 
 	origins   []string
 	decisions chan Decision
+
+	mu    sync.Mutex
+	diffs func(actionID string) (string, error)
+}
+
+// ShowDiffs sets where the text of a held file change comes from.
+func (s *Server) ShowDiffs(diff func(actionID string) (string, error)) {
+	s.mu.Lock()
+	s.diffs = diff
+	s.mu.Unlock()
+}
+
+// handleDiff returns the text of one held file change, for "Show changes".
+func (s *Server) handleDiff(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	diff := s.diffs
+	s.mu.Unlock()
+	if diff == nil {
+		http.Error(w, "this session has no file changes to show", http.StatusNotFound)
+		return
+	}
+	text, err := diff(r.URL.Query().Get("id"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	_, _ = io.WriteString(w, text) // fails only when the browser has gone away
 }
 
 // Decision is what the user chose on the page for the held actions.
@@ -62,6 +94,7 @@ func Start(log *events.Log, ui fs.FS, port int) (*Server, error) {
 	mux.HandleFunc("GET /api/events", s.handleEvents)
 	mux.HandleFunc("GET /api/held", s.handleHeld)
 	mux.HandleFunc("POST /api/apply", s.handleApply)
+	mux.HandleFunc("GET /api/diff", s.handleDiff)
 	if _, err := fs.Stat(ui, "index.html"); err == nil {
 		mux.Handle("GET /", http.FileServerFS(ui))
 	} else {

@@ -10,7 +10,8 @@ export type Category = 'provider' | 'other'
 export type Where = 'address' | 'header' | 'body'
 export type Phase = 'running' | 'reviewing' | 'deciding' | 'applying' | 'finished'
 export type Risk = 'low' | 'medium' | 'high'
-export type ActionKind = 'git-push' | 'npm-publish' | 'gh' | 'http'
+export type ActionKind = 'git-push' | 'npm-publish' | 'gh' | 'http' | 'file'
+export type FileChangeKind = 'added' | 'changed' | 'deleted'
 export type ReviewSource = 'model' | 'rules'
 export type Decision = '' | 'approved' | 'refused'
 export type Outcome = '' | 'applied' | 'failed' | 'not_applied'
@@ -33,13 +34,16 @@ export type EventType =
   | 'agent_result'
   | 'report_notes'
   | 'commits_created'
+  | 'sandbox_started'
+  | 'sensitive_write'
 
 const kinds: readonly Kind[] = ['real', 'canary', 'secret']
 const categories: readonly Category[] = ['provider', 'other']
 const wheres: readonly Where[] = ['address', 'header', 'body']
 const phases: readonly Phase[] = ['running', 'reviewing', 'deciding', 'applying', 'finished']
 const risks: readonly Risk[] = ['low', 'medium', 'high']
-const actionKinds: readonly ActionKind[] = ['git-push', 'npm-publish', 'gh', 'http']
+const actionKinds: readonly ActionKind[] = ['git-push', 'npm-publish', 'gh', 'http', 'file']
+const fileChangeKinds: readonly FileChangeKind[] = ['added', 'changed', 'deleted']
 const reviewSources: readonly ReviewSource[] = ['model', 'rules']
 const decisions: readonly Decision[] = ['', 'approved', 'refused']
 const outcomes: readonly Outcome[] = ['', 'applied', 'failed', 'not_applied']
@@ -62,6 +66,8 @@ const eventTypes: readonly EventType[] = [
   'agent_result',
   'report_notes',
   'commits_created',
+  'sandbox_started',
+  'sensitive_write',
 ]
 
 export interface Identifier {
@@ -132,6 +138,26 @@ export interface Ledger {
   // whether the log's chain of hashes recomputes; badEntry is the first
   // entry that does not match
   record: { verified: boolean; badEntry: number }
+  // true when the agent ran in a sandbox
+  sandboxed: boolean
+  // writes to paths that decide what runs on this machine
+  sensitive: SensitiveWrite[]
+}
+
+export interface SensitiveWrite {
+  path: string
+  reason: string
+  // already took effect: the path is one the sandbox leaves writable
+  real: boolean
+}
+
+/** A change to the project's files that is waiting in the sandbox. */
+export interface FileChange {
+  path: string
+  change: FileChangeKind
+  dir: boolean
+  files: number
+  sensitive: string
 }
 
 export interface Review {
@@ -168,6 +194,8 @@ export interface HeldAction {
   provenance: { sourceHost: string; secondsBefore: number } | null
   // servers whose content had been read before this action was issued
   outsideSources: string[]
+  // set for a change to the project's files made in the sandbox
+  file: FileChange | null
   review: Review | null
   decision: Decision
   outcome: Outcome
@@ -318,6 +346,11 @@ function parseLedger(value: unknown): Ledger {
     }),
     report: parseReport(from['report']),
     record: parseRecord(from['record']),
+    sandboxed: from['sandbox'] !== null,
+    sensitive: list(from, 'sensitive', what, (item, itemWhat) => {
+      const s = fields(item, itemWhat)
+      return { path: text(s, 'path', itemWhat), reason: text(s, 'reason', itemWhat), real: maybeFlag(s, 'real', itemWhat) }
+    }),
   }
 }
 
@@ -385,13 +418,29 @@ function parseProvenance(value: unknown, what: string): { sourceHost: string; se
   return { sourceHost: text(from, 'source_host', what), secondsBefore: count(from, 'seconds_before', what) }
 }
 
+function parseFileChange(value: unknown, what: string): FileChange {
+  const from = fields(value, what)
+  return {
+    path: text(from, 'path', what),
+    change: oneOf(from, 'change', fileChangeKinds, what),
+    dir: maybeFlag(from, 'dir', what),
+    files: count(from, 'files', what),
+    sensitive: maybeText(from, 'sensitive', what),
+  }
+}
+
 function parseAction(value: unknown, what: string): HeldAction {
   const from = fields(value, what)
   const kind = oneOf(from, 'kind', actionKinds, what)
-  const exact =
-    kind === 'http'
-      ? `${text(from, 'method', what)} ${text(from, 'host', what)}${text(from, 'path', what)}`
-      : list(from, 'command', what, word).join(' ')
+  const file = from['file'] === undefined ? null : parseFileChange(from['file'], `${what}.file`)
+  let exact: string
+  if (file !== null) {
+    exact = `${file.change} ${file.path}`
+  } else if (kind === 'http') {
+    exact = `${text(from, 'method', what)} ${text(from, 'host', what)}${text(from, 'path', what)}`
+  } else {
+    exact = list(from, 'command', what, word).join(' ')
+  }
   return {
     id: text(from, 'id', what),
     kind,
@@ -413,6 +462,7 @@ function parseAction(value: unknown, what: string): HeldAction {
     providerDoor: maybeFlag(from, 'provider_door', what),
     provenance: from['provenance'] === undefined ? null : parseProvenance(from['provenance'], `${what}.provenance`),
     outsideSources: maybeWords(from, 'outside_sources', what),
+    file,
     review: from['review'] === null ? null : parseReview(from['review'], `${what}.review`),
     decision: oneOf(from, 'decision', decisions, what),
     outcome: oneOf(from, 'outcome', outcomes, what),
@@ -469,6 +519,18 @@ export async function getLedger(): Promise<Ledger> {
 
 export async function getHeld(): Promise<Held> {
   return fixture()?.held() ?? parseHeld(await get('/api/held', 'held actions'))
+}
+
+/** The text of a held file change: a unified diff, or a folder's file names. */
+export async function getDiff(id: string): Promise<string> {
+  const scripted = fixture()
+  if (scripted !== null) return scripted.diff(id)
+  const res = await fetch(`/api/diff?id=${encodeURIComponent(id)}`)
+  const body = await res.text()
+  if (!res.ok) {
+    throw new Error(`the change could not be read (${res.status}): ${body.trim()}`)
+  }
+  return body
 }
 
 /** Performs the approved actions and refuses every other held action. */

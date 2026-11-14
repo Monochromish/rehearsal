@@ -4,6 +4,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -33,6 +34,7 @@ import (
 	"rehearsal/internal/record"
 	"rehearsal/internal/review"
 	"rehearsal/internal/run"
+	"rehearsal/internal/sandbox"
 	"rehearsal/internal/server"
 	"rehearsal/internal/standin"
 	"rehearsal/internal/webui"
@@ -52,6 +54,10 @@ const (
 
 	// held actions described by the model at the same time
 	reviewsAtOnce = 3
+
+	// the copy of this program in the session's folder that the stand-ins
+	// are links to
+	standinCopy = "rehearse-standin"
 )
 
 // platform.claude.com is where Claude Code renews its login. Held, that
@@ -75,12 +81,19 @@ type options struct {
 	reviewerURL     string
 	reviewerModel   string
 	reviewerTimeout time.Duration
+
+	sandbox      bool
+	sandboxWrite []string
 }
 
 func main() {
 	// Called as git, npm or gh, this binary is the stand-in for that program.
 	if name := filepath.Base(os.Args[0]); slices.Contains(standin.Names, name) {
 		os.Exit(standin.Main(name, os.Args[1:]))
+	}
+	// Started by bubblewrap, it is the first process inside the sandbox.
+	if len(os.Args) > 1 && os.Args[1] == sandbox.InitArg {
+		os.Exit(sandbox.Init(os.Args[2:]))
 	}
 
 	opts := options{reviewerModel: defaultModel}
@@ -118,6 +131,8 @@ func main() {
 	f.StringVar(&opts.reviewerURL, "reviewer-url", os.Getenv(envReviewerURL), "OpenAI-compatible address of the local model (default: Ollama on this machine, or on the Windows host under WSL; env "+envReviewerURL+")")
 	f.StringVar(&opts.reviewerModel, "reviewer-model", opts.reviewerModel, "model that describes held actions (env "+envReviewerModel+")")
 	f.DurationVar(&opts.reviewerTimeout, "reviewer-timeout", 45*time.Second, "how long to wait for the model on each action")
+	f.BoolVar(&opts.sandbox, "sandbox", false, "experimental: keep the agent's file changes in a layer over the project until you allow them, and cut off any network that does not go through Rehearsal")
+	f.StringSliceVar(&opts.sandboxWrite, "sandbox-write", nil, "with --sandbox: another path outside the project the agent may write to for real")
 
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "rehearse:", err)
@@ -141,6 +156,14 @@ func rehearse(opts options, command []string) (exitCode int, err error) {
 
 	if _, err := exec.LookPath(command[0]); err != nil {
 		return 127, fmt.Errorf("cannot find the command %q", command[0])
+	}
+	if opts.sandbox {
+		if opts.noHold {
+			return 1, errors.New("--sandbox cannot be used with --no-hold: the file changes it keeps back are held actions")
+		}
+		if err := sandbox.Available(); err != nil {
+			return 1, fmt.Errorf("--sandbox: %w", err)
+		}
 	}
 	workDir, err := os.Getwd()
 	if err != nil {
@@ -231,6 +254,8 @@ func rehearse(opts options, command []string) (exitCode int, err error) {
 	var holder *hold.Holder
 	var store *hold.Store
 	var reviewer reviewer
+	// what a sandbox must be able to see of ours, and the second proxy
+	var shimDir, socketDir, passURL string
 	if !opts.noHold {
 		if store, err = hold.NewStore(filepath.Join(sessionDir, "held")); err != nil {
 			return 1, err
@@ -280,8 +305,9 @@ func rehearse(opts options, command []string) (exitCode int, err error) {
 			return 1, err
 		}
 		intake = append(intake, func() { cleanup("close the stand-in socket", socket.Close) })
+		socketDir, passURL = filepath.Dir(socket.Path), pass.URL
 
-		shimDir := filepath.Join(sessionDir, "bin")
+		shimDir = filepath.Join(sessionDir, "bin")
 		if err := installStandins(shimDir); err != nil {
 			return 1, err
 		}
@@ -321,17 +347,51 @@ func rehearse(opts options, command []string) (exitCode int, err error) {
 		}
 	}
 
+	var box *sandbox.Box
+	var files *fileChanges
+	if opts.sandbox {
+		keyDir, err := record.KeyDir()
+		if err != nil {
+			return 1, err
+		}
+		writable := sandboxWritable(opts.sandboxWrite)
+		box, err = sandbox.New(sandbox.Options{
+			Project: workDir, Dir: filepath.Join(sessionDir, "sandbox"),
+			Self: filepath.Join(shimDir, standinCopy),
+			// the log, the held payloads, the certificate authority's key
+			// and the signing key are ours and not for the agent to read
+			Hide:     []string{stateDir, keyDir},
+			Visible:  []string{shimDir, px.CACertPath, socketDir},
+			Writable: writable,
+			Proxies:  []string{strings.TrimPrefix(px.URL, "http://"), strings.TrimPrefix(passURL, "http://")},
+			Since:    canaryPlanted(workDir),
+		})
+		if err != nil {
+			return 1, fmt.Errorf("--sandbox: %w", err)
+		}
+		intake = append(intake, func() { cleanup("close the sandbox's network", box.Close) })
+		if _, err := log.Append(events.TypeSandboxStarted, events.SandboxStarted{Writable: writable}); err != nil {
+			return 1, err
+		}
+		files = &fileChanges{box: box, log: log, holder: holder, workDir: workDir, keep: keep, byID: map[string]events.FileChange{}}
+		web.ShowDiffs(files.diff)
+		files.watch()
+		command = box.Command(command)
+	}
+
 	exitCode, err = run.Command(command, env, func() {
 		// a failed write here costs one line of the report, not the session
 		_, _ = log.Append(events.TypeFirstInput, events.FirstInput{})
 	})
 
+	if files != nil {
+		// while the stand-ins can still be told about, so the list the user
+		// decides on is complete before it closes
+		cleanup("list the sandbox's file changes", files.hold)
+	}
 	stopIntake()
 	if holder != nil {
 		holder.Close()
-	}
-	if _, aerr := log.Append(events.TypeCommitsCreated, commitsSince(workDir, refsBefore, inRepo)); aerr != nil {
-		err = errors.Join(err, aerr)
 	}
 	if _, aerr := log.Append(events.TypeSessionEnded, events.SessionEnded{ExitCode: exitCode}); aerr != nil {
 		err = errors.Join(err, aerr)
@@ -344,11 +404,22 @@ func rehearse(opts options, command []string) (exitCode int, err error) {
 
 	if holder != nil && holder.Count() > 0 {
 		d := decider{log: log, store: store, reviewer: reviewer, web: web, keep: keep}
+		if box != nil {
+			d.files = box
+		}
 		failed, derr := d.run()
 		err = errors.Join(err, derr)
 		if failed && exitCode == 0 {
 			exitCode = 1
 		}
+	}
+	if files != nil {
+		cleanup("clear the sandbox", files.finish)
+	}
+	// After the decision: in a sandbox the agent's commits are file changes
+	// until they are applied, and only then are they in the repository.
+	if _, aerr := log.Append(events.TypeCommitsCreated, commitsSince(workDir, refsBefore, inRepo)); aerr != nil {
+		err = errors.Join(err, aerr)
 	}
 	if reviewer.model != nil {
 		cleanup("add the model's notes to the report", func() error {
@@ -442,6 +513,8 @@ type decider struct {
 	reviewer reviewer
 	web      *server.Server
 	keep     []string
+	// where approved file changes are copied from; nil without a sandbox
+	files apply.FileApplier
 }
 
 func (d decider) run() (failed bool, err error) {
@@ -503,12 +576,29 @@ func (d decider) run() (failed bool, err error) {
 			return false, err
 		}
 	}
-	applier := apply.Applier{Log: d.log, Store: d.store, Keep: d.keep}
+	// File changes go first: a push that was held needs the commits the
+	// agent made, and those are file changes until they are applied.
+	slices.SortStableFunc(approved, func(x, y events.ActionHeld) int {
+		return cmp.Compare(btoi(x.Kind != events.ActionFile), btoi(y.Kind != events.ActionFile))
+	})
+	applier := apply.Applier{Log: d.log, Store: d.store, Keep: d.keep, Files: d.files}
 	_, failed, err = applier.Run(ctx, approved)
 	return failed, err
 }
 
+func btoi(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
 func (d decider) describe(ctx context.Context, a ledger.Action) (review.Verdict, error) {
+	// A file change is described from what is on disk. Its contents are
+	// not sent to the model.
+	if a.Kind == events.ActionFile {
+		return review.ByRules(a.ActionHeld), nil
+	}
 	if d.reviewer.model == nil {
 		v := review.ByRules(a.ActionHeld)
 		v.Note = d.reviewer.note
@@ -569,7 +659,7 @@ func installStandins(dir string) (err error) {
 		return fmt.Errorf("make the stand-ins: %w", err)
 	}
 	defer src.Close() // read-only
-	const copyName = "rehearse-standin"
+	const copyName = standinCopy
 	dst, err := os.OpenFile(filepath.Join(dir, copyName), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o700)
 	if err != nil {
 		return fmt.Errorf("make the stand-ins: %w", err)
