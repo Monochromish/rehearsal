@@ -134,6 +134,41 @@ agent's last message said it did and whether an observed command supports or
 contradicts each claim. That section is experimental. Without a model the
 summary comes from a fixed template and the claims section is left out.
 
+## A record others can check
+
+Every entry in a session's log carries the hash of the entry before it, and
+the end of the log is signed with a key that is made for you the first time
+you record a session. Three commands work on a finished session. With no
+session named they use the most recent one.
+
+```
+rehearse verify [session]
+```
+
+Recomputes the chain and checks the signature. If anything was edited,
+removed or reordered it exits 1 and names the first entry that doesn't
+match. The page shows the same check as one line at the end of a session.
+
+```
+rehearse export [session] --format jsonl
+```
+
+Prints the log as one JSON object per line, for a log system to take in.
+
+```
+rehearse attest [session]
+rehearse verify-attestation rehearsal-attestation.json --key signing-key.pub
+```
+
+`attest` writes a small signed file saying which commits were made during
+the session, how many actions were held, approved and refused, and which
+log it is talking about. `verify-attestation` checks that file against a
+public key with nothing else needed, so a pull request can carry the file
+and a check can refuse one without it.
+
+[docs/attestation.md](docs/attestation.md) has the formats, what each
+check can and can't tell you, and an example of a pull request check.
+
 ## The reviewer
 
 The explanations and risk ratings come from a model running on your own
@@ -251,6 +286,10 @@ On WSL the page opens in its own Edge window. Anywhere else, open the address
 Options go before the agent command. Everything after it is passed to the
 agent untouched.
 
+`verify`, `export`, `attest` and `verify-attestation` are commands of
+`rehearse` itself. To wrap a program that has one of those names, give its
+path: `rehearse ./verify`.
+
 Add `rehearsal-ledger.json`, `rehearsal-report.md` and `CANARY.txt` to your
 project's `.gitignore`.
 
@@ -334,6 +373,13 @@ for it, and `rehearse` says so when it exits.
   proxy. Names such as `localhost` work.
 - The wrapped command is told to trust only Rehearsal's certificate, so a tool
   that skips the proxy may fail to connect.
+- The signature on a session's record shows that whoever holds your signing
+  key signed that log. Someone with the key and the log can rewrite both. A
+  session that was killed before it ended has no signature and does not
+  verify.
+- The commits an attestation lists are those in the repository of the folder
+  the session ran in. Commits the agent made in another repository are not
+  seen.
 - The page stops updating when `rehearse` exits. An open window keeps the
   final state, but reloading it fails. Use `rehearsal-ledger.json` after that.
 - The ledger file holds your real details (the values being watched for). It
@@ -371,6 +417,8 @@ REHEARSAL_LIVE_MODEL_URL=http://192.168.96.1:11434/v1 go test -run TestLive ./in
 | `internal/review` | The local-model reviewer and the rules it can't go below |
 | `internal/apply` | Performing approved actions |
 | `internal/ledger` | Building the ledger and the session report from the log |
+| `internal/record` | The signing key, the signed checkpoint and attestations |
+| `docs` | The record and attestation formats |
 | `internal/server` | The local API and the page |
 | `internal/run` | Launching the agent with a pseudo-terminal |
 | `web` | The page (Vue 3, TypeScript, Vite) |

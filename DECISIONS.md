@@ -433,6 +433,71 @@ contradicted by the failing test command.
 `rehearsal-report.md` is written beside `rehearsal-ledger.json`. Secrets
 appear in it by label only.
 
+## The record
+
+Each row of the log stores two hashes: `prev`, the hash of the row before,
+and `hash`, its own. The plan asks only for the first. Storing the row's
+own hash as well lets a check name the row that was edited, not the one
+after it.
+
+The hashed form is the row's five stored fields joined by line feeds, not a
+re-encoded JSON object. The stored text is hashed as it is, so there is no
+canonical JSON to get wrong. `docs/attestation.md` spells it out.
+
+Row numbers are assigned by `rehearse`, one more than the last, because the
+number is part of what is hashed and has to be known before the row is
+written.
+
+The checkpoint is a file, `checkpoint.json`, beside the log. It is not an
+entry in the log, because it signs the log's last hash. Before signing, the
+log is sealed: a late write (a reply still being read when the session
+ends, say) is refused, where otherwise it would make a signed record fail.
+
+The signing key is PEM (PKCS #8 private, PKIX public) so other tools can
+read it. It lives in the configuration directory, not with the session
+state, since it outlives sessions and must never be swept up with them. A
+private key file that group or others can read is refused, with the
+`chmod` to fix it.
+
+If the key can't be read or made, the session still runs. A warning says
+the record will not be signed, and `rehearse verify` fails for that session
+with "no signed checkpoint". Refusing to start seemed worse than recording
+unsigned.
+
+`rehearse verify` trusts your own public key and nothing else. A
+checkpoint signed by any other key fails, since otherwise a rewritten log
+could simply be signed again with a new key.
+
+The page's "Record verified" line recomputes the chain on each read. It
+doesn't check the signature, which is made after the page's last update.
+
+`rehearse export` blanks the values of your own details in the first
+entry, so that line's `data` no longer matches its `hash`. The other choice
+was to export nothing redacted, and a log system is the wrong place for
+your git email.
+
+## Attestations
+
+The commits "created during the session" are worked out from git, not from
+what the agent said it did: every ref's commit is noted before the agent
+starts, and when it exits the commits reachable from a local branch or
+`HEAD` that none of those could reach are listed. A commit the agent
+fetched and merged counts, since it is new to the local branches. The list
+is written to the log as an event, so the attestation is built only from
+the verified log.
+
+The statement is signed in compact form (white space between tokens
+removed), with a fixed first line naming the format. The verifier compacts
+what it reads before checking, so re-indenting the file is harmless and
+any change of content is not.
+
+`verify-attestation` requires `--key`. Checking a file against the key it
+names itself would pass for a statement anyone signed.
+
+The tool version is a constant in `cmd/rehearse`, now `0.3.0`, written into
+every session's first entry. The attestation states the version that
+recorded the session, not the one that made the attestation.
+
 ## Deciding and applying
 
 The six new event types are the ones the plan lists. Whether the session is

@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
 	"errors"
@@ -29,6 +30,7 @@ import (
 	"rehearsal/internal/ident"
 	"rehearsal/internal/ledger"
 	"rehearsal/internal/proxy"
+	"rehearsal/internal/record"
 	"rehearsal/internal/review"
 	"rehearsal/internal/run"
 	"rehearsal/internal/server"
@@ -41,6 +43,9 @@ const (
 	ledgerFile   = "rehearsal-ledger.json"
 	reportFile   = "rehearsal-report.md"
 	defaultModel = "qwen3.8:27b"
+
+	// recorded in every session and stated in attestations
+	version = "0.3.0"
 
 	envReviewerURL   = "REHEARSAL_REVIEWER_URL"
 	envReviewerModel = "REHEARSAL_REVIEWER_MODEL"
@@ -90,6 +95,7 @@ func main() {
 			"  rehearse --no-hold claude\n" +
 			"  rehearse --provider api.example.com -- my-agent --some-flag",
 		Args:          cobra.MinimumNArgs(1),
+		Version:       version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(_ *cobra.Command, args []string) error {
@@ -98,6 +104,8 @@ func main() {
 			return err
 		},
 	}
+	// To wrap a program that shares a name with one of these, give its path.
+	root.AddCommand(recordCommands()...)
 	f := root.Flags()
 	f.SetInterspersed(false) // everything after the command belongs to it
 	f.IntVar(&opts.port, "port", 0, "port for the page (default: any free port)")
@@ -156,6 +164,14 @@ func rehearse(opts options, command []string) (exitCode int, err error) {
 	}
 	defer cleanup("close the event log", log.Close)
 
+	// The key is found, or made, before the agent starts, so that a problem
+	// with it is said now and not after an hour's session.
+	signer, keyErr := signingKey()
+	if keyErr != nil {
+		fmt.Fprintf(os.Stderr, "rehearse: warning: the record of this session will not be signed, and `rehearse verify` will say so:\n%v\n", keyErr)
+	}
+	refsBefore, inRepo := refsNow(workDir)
+
 	own, warn := ident.CollectReal(workDir)
 	if warn != nil {
 		fmt.Fprintf(os.Stderr, "rehearse: warning: not watching for some of your details:\n%v\n", warn)
@@ -184,7 +200,7 @@ func rehearse(opts options, command []string) (exitCode int, err error) {
 	// Only the program name is stored: its arguments may contain secrets.
 	if _, err := log.Append(events.TypeSessionStarted, events.SessionStarted{
 		Command: command[:1], WorkDir: workDir, ProviderHosts: opts.providers, Identifiers: identifiers,
-		Holding: !opts.noHold, InputWatched: run.WatchesInput(),
+		Holding: !opts.noHold, InputWatched: run.WatchesInput(), ToolVersion: version,
 	}); err != nil {
 		return 1, err
 	}
@@ -314,6 +330,9 @@ func rehearse(opts options, command []string) (exitCode int, err error) {
 	if holder != nil {
 		holder.Close()
 	}
+	if _, aerr := log.Append(events.TypeCommitsCreated, commitsSince(workDir, refsBefore, inRepo)); aerr != nil {
+		err = errors.Join(err, aerr)
+	}
 	if _, aerr := log.Append(events.TypeSessionEnded, events.SessionEnded{ExitCode: exitCode}); aerr != nil {
 		err = errors.Join(err, aerr)
 	}
@@ -337,7 +356,23 @@ func rehearse(opts options, command []string) (exitCode int, err error) {
 		})
 	}
 	cleanup("write the ledger", func() error { return report(log, workDir) })
+	if signer != nil {
+		cleanup("sign the record", func() error {
+			// Sealed first: an entry written after the signature would
+			// make the record fail to verify.
+			entries, finalHash := log.Seal()
+			return record.WriteCheckpoint(sessionDir, record.SignCheckpoint(signer, filepath.Base(sessionDir), entries, finalHash, time.Now()))
+		})
+	}
 	return exitCode, err
+}
+
+func signingKey() (ed25519.PrivateKey, error) {
+	dir, err := record.KeyDir()
+	if err != nil {
+		return nil, err
+	}
+	return record.LoadOrCreateKey(dir)
 }
 
 // writeNotes adds the two parts of the report that the local model
@@ -495,11 +530,7 @@ func (d decider) describe(ctx context.Context, a ledger.Action) (review.Verdict,
 }
 
 func current(log *events.Log) (ledger.Ledger, error) {
-	evs, err := log.Since(0)
-	if err != nil {
-		return ledger.Ledger{}, err
-	}
-	return ledger.Build(evs)
+	return ledger.FromLog(log)
 }
 
 func report(log *events.Log, workDir string) error {

@@ -76,7 +76,7 @@ func closedPort(t *testing.T) string {
 // unless the test names one.
 func cleanEnv(t *testing.T, extra ...string) []string {
 	t.Helper()
-	dropped := []string{"no_proxy", "xdg_state_home", "rehearsal_reviewer_url", "rehearsal_reviewer_model"}
+	dropped := []string{"no_proxy", "xdg_state_home", "xdg_config_home", "rehearsal_reviewer_url", "rehearsal_reviewer_model"}
 	var env []string
 	for _, kv := range os.Environ() {
 		key := strings.ToLower(strings.SplitN(kv, "=", 2)[0])
@@ -86,6 +86,8 @@ func cleanEnv(t *testing.T, extra ...string) []string {
 	}
 	env = append(env,
 		"XDG_STATE_HOME="+t.TempDir(),
+		// the signing key goes here, never in the developer's own folder
+		"XDG_CONFIG_HOME="+t.TempDir(),
 		"GIT_CONFIG_GLOBAL=/dev/null",
 		"GIT_CONFIG_NOSYSTEM=1",
 		"GIT_AUTHOR_NAME=Test", "GIT_AUTHOR_EMAIL=test@example.invalid",

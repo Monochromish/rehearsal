@@ -30,6 +30,8 @@ const (
 	TypeAgentAction Type = "agent_action"
 	TypeAgentResult Type = "agent_result"
 	TypeReportNotes Type = "report_notes"
+
+	TypeCommitsCreated Type = "commits_created"
 )
 
 type Event struct {
@@ -37,6 +39,9 @@ type Event struct {
 	Time time.Time       `json:"time"`
 	Type Type            `json:"type"`
 	Data json.RawMessage `json:"data"`
+	// hash of the entry before this one, and of this one
+	Prev string `json:"prev"`
+	Hash string `json:"hash"`
 }
 
 // Kind separates the user's own identifiers from the ones we planted.
@@ -97,6 +102,20 @@ type SessionStarted struct {
 	// whether the user's input passes through rehearse, so that its first
 	// key can be noticed
 	InputWatched bool `json:"input_watched"`
+	// the version of rehearse recording the session
+	ToolVersion string `json:"tool_version,omitempty"`
+}
+
+// CommitsCreated lists the commits made during the session in the working
+// folder's repository: those reachable from a local branch when the agent
+// exited that no ref could reach when it started.
+type CommitsCreated struct {
+	// false when the working folder is not a git repository, or git could
+	// not be asked
+	Known   bool     `json:"known"`
+	Commits []string `json:"commits"`
+	// commits left off the list because it was too long
+	Omitted int `json:"omitted,omitempty"`
 }
 
 // Request never carries headers, the query string or the body.

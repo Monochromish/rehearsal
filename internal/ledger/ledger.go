@@ -43,6 +43,41 @@ type Ledger struct {
 	// servers other than the model provider whose replies were read
 	Outside []OutsideSource `json:"outside"`
 	Report  Report          `json:"report"`
+	// the version of rehearse that recorded the session
+	ToolVersion string `json:"tool_version"`
+	// commits made in the working folder's repository during the session;
+	// nil until the agent has exited
+	Commits *events.CommitsCreated `json:"commits"`
+	// whether the event log's chain of hashes recomputes. Set by FromLog.
+	Record Record `json:"record"`
+}
+
+// Record is the state of the log the ledger was built from.
+type Record struct {
+	Verified bool  `json:"verified"`
+	Entries  int64 `json:"entries"`
+	// the first entry that does not match, when not verified
+	BadEntry int64  `json:"bad_entry"`
+	Problem  string `json:"problem,omitempty"`
+}
+
+// FromLog builds the ledger from everything in the log, and notes whether
+// the log's chain of hashes still holds.
+func FromLog(log *events.Log) (Ledger, error) {
+	evs, err := log.Since(0)
+	if err != nil {
+		return Ledger{}, err
+	}
+	l, err := Build(evs)
+	if err != nil {
+		return l, err
+	}
+	chain, err := log.Check()
+	if err != nil {
+		return l, err
+	}
+	l.Record = Record{Verified: chain.OK(), Entries: chain.Entries, BadEntry: chain.BadEntry, Problem: chain.Problem}
+	return l, nil
 }
 
 // OutsideSource is one server the agent read content from.
@@ -134,6 +169,7 @@ func Build(evs []events.Event) (Ledger, error) {
 				return l, err
 			}
 			l.Command, l.WorkDir, l.StartedAt, l.Watching, l.Holding = d.Command, d.WorkDir, ev.Time, d.Identifiers, d.Holding
+			l.ToolVersion = d.ToolVersion
 			report.watched = d.InputWatched
 			for _, id := range d.Identifiers {
 				byID[id.ID] = id
@@ -157,6 +193,12 @@ func Build(evs []events.Event) (Ledger, error) {
 			report.request(d)
 		case events.TypeFirstInput:
 			report.inputSeen = true
+		case events.TypeCommitsCreated:
+			var d events.CommitsCreated
+			if err := decode(ev, &d); err != nil {
+				return l, err
+			}
+			l.Commits = &d
 		case events.TypeModelUsage:
 			var d events.ModelUsage
 			if err := decode(ev, &d); err != nil {

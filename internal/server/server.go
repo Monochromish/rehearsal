@@ -108,11 +108,7 @@ func localOnly(next http.Handler) http.Handler {
 }
 
 func (s *Server) ledger() (ledger.Ledger, error) {
-	evs, err := s.log.Since(0)
-	if err != nil {
-		return ledger.Ledger{}, err
-	}
-	return ledger.Build(evs)
+	return ledger.FromLog(s.log)
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

@@ -402,5 +402,12 @@ func (l Ledger) Markdown() string {
 	} else {
 		b.WriteString(strings.TrimPrefix(l.actionsText(), "\nHELD ACTIONS\n"))
 	}
+
+	// nothing to say when the ledger was not built from a log
+	if r := l.Record; r.Verified {
+		fmt.Fprintf(&b, "\n## Record\n\nThe log of this session had %d entries when this report was written, each carrying the hash of the one before, and the chain verified. `rehearse verify` checks it again, with its signature.\n", r.Entries)
+	} else if r.BadEntry > 0 {
+		fmt.Fprintf(&b, "\n## Record\n\nThe log of this session does not verify, starting at entry %d: %s.\n", r.BadEntry, r.Problem)
+	}
 	return b.String()
 }

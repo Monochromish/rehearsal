@@ -164,6 +164,7 @@ function scripted(phase: Phase, actions: HeldAction[], extraServers: Server[] = 
       watching,
       servers: all,
       outside: extraServers.length > 0 ? [{ host: 'docs.example.org', reads: 2, hidden: 1 }] : [],
+      record: { verified: true, badEntry: 0 },
       report: {
         inputWatched: true,
         inputSeen: true,

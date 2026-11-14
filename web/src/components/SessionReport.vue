@@ -34,6 +34,12 @@ const traffic = computed(() => {
 
 const timeline = computed(() => props.events.filter((e) => e.what !== ''))
 
+const recordLine = computed(() => {
+  const r = props.ledger.record
+  if (r.verified) return 'Record verified.'
+  return r.badEntry > 0 ? `Record does not verify, starting at entry ${r.badEntry}.` : 'Record does not verify.'
+})
+
 const commandsOpen = ref(false)
 const r = computed(() => props.ledger.report)
 
@@ -144,6 +150,7 @@ async function copy(): Promise<void> {
 
     <div class="footer">
       <div class="totals">{{ traffic }}</div>
+      <div :class="ledger.record.verified ? 'totals' : 'totals broken'">{{ recordLine }}</div>
       <div class="links">
         <button class="link" type="button" :aria-expanded="timelineOpen" @click="timelineOpen = !timelineOpen">
           {{ timelineOpen ? 'Hide timeline' : 'Timeline' }}
@@ -318,6 +325,10 @@ async function copy(): Promise<void> {
 .totals {
   font-size: 16px;
   color: var(--secondary);
+}
+
+.broken {
+  color: var(--high);
 }
 
 .links {

@@ -32,6 +32,7 @@ export type EventType =
   | 'agent_action'
   | 'agent_result'
   | 'report_notes'
+  | 'commits_created'
 
 const kinds: readonly Kind[] = ['real', 'canary', 'secret']
 const categories: readonly Category[] = ['provider', 'other']
@@ -60,6 +61,7 @@ const eventTypes: readonly EventType[] = [
   'agent_action',
   'agent_result',
   'report_notes',
+  'commits_created',
 ]
 
 export interface Identifier {
@@ -127,6 +129,9 @@ export interface Ledger {
   servers: Server[]
   outside: OutsideSource[]
   report: Report
+  // whether the log's chain of hashes recomputes; badEntry is the first
+  // entry that does not match
+  record: { verified: boolean; badEntry: number }
 }
 
 export interface Review {
@@ -312,7 +317,13 @@ function parseLedger(value: unknown): Ledger {
       return { host: text(o, 'host', itemWhat), reads: count(o, 'reads', itemWhat), hidden: count(o, 'hidden', itemWhat) }
     }),
     report: parseReport(from['report']),
+    record: parseRecord(from['record']),
   }
+}
+
+function parseRecord(value: unknown): { verified: boolean; badEntry: number } {
+  const from = fields(value, 'ledger.record')
+  return { verified: flag(from, 'verified', 'ledger.record'), badEntry: count(from, 'bad_entry', 'ledger.record') }
 }
 
 function maybeNumber(from: Fields, key: string, what: string): number | null {
