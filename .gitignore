@@ -1,0 +1,19 @@
+# Certificates and keys must never be committed
+*.pem
+*.key
+*.cer
+*.crt
+
+# Session output
+rehearsal-ledger.json
+CANARY.txt
+*.db
+*.db-shm
+*.db-wal
+*.log
+
+# Builds
+/rehearse
+node_modules/
+/internal/webui/dist/*
+!/internal/webui/dist/.gitkeep

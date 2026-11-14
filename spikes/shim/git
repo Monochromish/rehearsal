@@ -1,0 +1,9 @@
+#!/bin/sh
+# Throwaway stand-in for git (test C): logs its arguments, then hands
+# everything to the real git unchanged.
+self_dir=$(cd "$(dirname "$0")" && pwd)
+printf '%s SHIM git %s\n' "$(date +%H:%M:%S)" "$*" >> "${REHEARSAL_SHIM_LOG:-/tmp/rehearsal-shim.log}"
+# Drop our own directory from PATH so the next `git` found is the real one.
+PATH=$(printf '%s' "$PATH" | tr ':' '\n' | grep -vxF "$self_dir" | paste -sd: -)
+export PATH
+exec git "$@"
