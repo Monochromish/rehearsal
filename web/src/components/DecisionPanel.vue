@@ -3,7 +3,7 @@ import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import type { Held, HeldAction, PolicyState, Risk } from '../api'
 import type { Row } from '../present'
 import { decisionLabel, riskOf, rowsFor } from '../present'
-import HeldItem from './HeldItem.vue'
+import ActionRow from './ActionRow.vue'
 
 const props = defineProps<{
   held: Held
@@ -127,12 +127,12 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
   <div ref="panel" class="panel">
     <div v-if="high.length > 0" class="group">
       <h2 class="heading">Look at these</h2>
-      <HeldItem v-for="row in high" :key="row.key" :row="row" :ticked="isTicked(row)" :can-decide="canDecide" @toggle="toggle" />
+      <ActionRow v-for="row in high" :key="row.key" :row="row" :ticked="isTicked(row)" :can-decide="canDecide" @toggle="toggle" />
     </div>
 
     <div v-if="medium.length > 0" class="group">
       <h2 class="heading">Probably fine</h2>
-      <HeldItem v-for="row in medium" :key="row.key" :row="row" :ticked="isTicked(row)" :can-decide="canDecide" @toggle="toggle" />
+      <ActionRow v-for="row in medium" :key="row.key" :row="row" :ticked="isTicked(row)" :can-decide="canDecide" @toggle="toggle" />
     </div>
 
     <div v-if="low.length > 0" class="group">
@@ -144,18 +144,18 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
         </button>
       </div>
       <div v-if="routineOpen" class="rows">
-        <HeldItem v-for="row in low" :key="row.key" :row="row" :ticked="isTicked(row)" :can-decide="canDecide" @toggle="toggle" />
+        <ActionRow v-for="row in low" :key="row.key" :row="row" :ticked="isTicked(row)" :can-decide="canDecide" @toggle="toggle" />
       </div>
     </div>
 
     <div v-if="fileRows.length > 0" class="group">
       <h2 class="heading">File changes</h2>
-      <HeldItem v-for="row in fileRows" :key="row.key" :row="row" :ticked="isTicked(row)" :can-decide="canDecide" @toggle="toggle" />
+      <ActionRow v-for="row in fileRows" :key="row.key" :row="row" :ticked="isTicked(row)" :can-decide="canDecide" @toggle="toggle" />
     </div>
 
     <div v-if="unread.length > 0" class="group">
       <h2 class="heading">Still being read</h2>
-      <HeldItem v-for="row in unread" :key="row.key" :row="row" :ticked="false" :can-decide="false" @toggle="toggle" />
+      <ActionRow v-for="row in unread" :key="row.key" :row="row" :ticked="false" :can-decide="false" @toggle="toggle" />
     </div>
 
     <div v-if="policy.ignored.length > 0" class="group">

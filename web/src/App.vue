@@ -5,7 +5,7 @@ import type { Held, Ledger, LogEvent, Subscription } from './api'
 import { statusSentence } from './present'
 import { palettes, systemTheme, watchSystemTheme } from './theme'
 import type { ThemeName } from './theme'
-import SummaryBar from './components/SummaryBar.vue'
+import StatusHeading from './components/StatusHeading.vue'
 import UnusualList from './components/UnusualList.vue'
 import DecisionPanel from './components/DecisionPanel.vue'
 import SessionReport from './components/SessionReport.vue'
@@ -155,7 +155,7 @@ onUnmounted(() => {
         <div class="meta">Rehearsal</div>
         <h1 v-if="problems.length === 0" class="waiting">Connecting to Rehearsal.</h1>
       </div>
-      <SummaryBar v-else :meta="meta" :status="status" />
+      <StatusHeading v-else :meta="meta" :status="status" />
 
       <div v-if="problems.length > 0" class="problems" role="alert">
         <h2 class="problem-heading">Something went wrong</h2>

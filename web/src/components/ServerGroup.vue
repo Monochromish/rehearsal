@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { Server } from '../api'
-import ServerCard from './ServerCard.vue'
+import ServerRow from './ServerRow.vue'
 
 defineProps<{
   title: string
@@ -11,7 +11,7 @@ defineProps<{
 <template>
   <div v-if="servers.length > 0" class="group">
     <h2 class="heading">{{ title }}</h2>
-    <ServerCard v-for="server in servers" :key="server.host" :server="server" />
+    <ServerRow v-for="server in servers" :key="server.host" :server="server" />
   </div>
 </template>
 
