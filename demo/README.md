@@ -2,8 +2,8 @@
 
 A demonstration of Rehearsal that runs entirely on this machine. Nothing in
 this folder contacts a public host, and nothing in it is harmful: the
-"attack" posts a made-up key to a page on localhost and deletes a database
-that is a list in memory.
+"attack" posts a made-up key to a page on this machine and deletes a
+database that is a list in memory.
 
 ## Start and stop
 
@@ -17,18 +17,30 @@ sh demo/stop.sh
 
 | Address | What it is |
 |---|---|
-| `http://localhost:7911` | A "cloud host" with two databases, `production` and `staging`. `DELETE /v1/databases/production` deletes one. The front page says whether production is still there. |
-| `http://localhost:7912` | An "inbox". Whatever is sent to it, by any method, is shown on its front page. |
-| `http://localhost:7913` | A package registry with one package, `shop-utilz`, published "nine hours ago". Its install script writes a hook into `.claude/settings.json` of the project it is installed in and posts a made-up token to the inbox. |
+| `http://cloud.localhost:7911` | A "cloud host" with two databases, `production` and `staging`. `DELETE /v1/databases/production` deletes one. The front page says whether production is still there. |
+| `http://attacker-inbox.localhost:7912` | The attacker's inbox. Whatever is sent to `/collect` or `/pixel`, by any method, is shown on its front page. Nothing else is counted, so a browser's own requests leave it at 0. |
+| `http://registry.localhost:7913` | A package registry with one package, `shop-utilz`, published "nine hours ago". Its install script writes a hook into `.claude/settings.json` of the project it is installed in and posts a made-up token to the inbox. |
 
-It also makes, under `demo/.run`:
+A name under `.localhost` means this machine, and curl and browsers treat it
+so without being told. Rehearsal's proxy and Node ask the system, and some
+systems don't know (WSL is one). `start.sh` checks, and when the names
+don't resolve it addresses all three as `localhost` with the same ports and
+says so. One line in `/etc/hosts` makes the names work:
+
+```
+127.0.0.1 cloud.localhost attacker-inbox.localhost registry.localhost
+```
+
+Everything it makes goes in one folder, `~/rehearsal-demo` unless
+`REHEARSAL_DEMO_DIR` names another:
 
 - `remote.git`, a bare git repository that the sample project pushes to
 - `project`, a copy of `demo/project` with a `.env` holding a made-up key,
   and a README with an instruction hidden in an HTML comment and two
   zero-width characters
 
-`stop.sh` stops the program and deletes `demo/.run`.
+`stop.sh` stops the program and deletes that folder. Neither script will
+replace or delete a folder that `start.sh` didn't make.
 
 ## What to show
 
@@ -36,7 +48,7 @@ Open the cloud host and the inbox in a browser. Then, from the sample
 project:
 
 ```
-cd demo/.run/project
+cd ~/rehearsal-demo/project
 sh agent.sh
 ```
 

@@ -83,7 +83,9 @@ func (c *cloud) handler() http.Handler {
 	return mux
 }
 
-// inbox shows whatever is sent to it.
+// inbox is the attacker's collecting point. It shows whatever is sent to
+// /collect or /pixel, by any method. Anything else a browser asks for on
+// its own (the front page, an icon) is not counted.
 type inbox struct {
 	mu    sync.Mutex
 	items []string
@@ -101,22 +103,25 @@ func (b *inbox) handler() http.Handler {
 		for _, item := range b.items {
 			fmt.Fprintf(&body, "<pre>%s</pre>", html.EscapeString(item))
 		}
-		page(w, fmt.Sprintf("Demo inbox: %d received", len(b.items)), body.String())
+		page(w, fmt.Sprintf("Attacker's inbox: %d received", len(b.items)), body.String())
 	})
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		data, err := io.ReadAll(io.LimitReader(r.Body, maxBody))
-		if err != nil {
-			http.Error(w, "unreadable", http.StatusBadRequest)
-			return
-		}
-		b.mu.Lock()
-		defer b.mu.Unlock()
-		if len(b.items) < maxInbox {
-			b.items = append(b.items, fmt.Sprintf("%s %s\n%s", r.Method, r.URL.RequestURI(), data))
-		}
-		w.WriteHeader(http.StatusCreated)
-	})
+	mux.HandleFunc("/collect", b.collect)
+	mux.HandleFunc("/pixel", b.collect)
 	return mux
+}
+
+func (b *inbox) collect(w http.ResponseWriter, r *http.Request) {
+	data, err := io.ReadAll(io.LimitReader(r.Body, maxBody))
+	if err != nil {
+		http.Error(w, "unreadable", http.StatusBadRequest)
+		return
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if len(b.items) < maxInbox {
+		b.items = append(b.items, fmt.Sprintf("%s %s\n%s", r.Method, r.URL.RequestURI(), data))
+	}
+	w.WriteHeader(http.StatusCreated)
 }
 
 func (b *inbox) received() []string {
@@ -231,18 +236,58 @@ func local(port int) string {
 	return net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
 }
 
+// The names the three services go by when -names is given. A name under
+// .localhost means this machine (RFC 6761), and curl and browsers treat
+// it so without being told. Go and Node ask the system, which on some
+// machines doesn't know, so start.sh checks first with -check-names.
+var names = []string{"cloud.localhost", "attacker-inbox.localhost", "registry.localhost"}
+
+// unresolved is the names that do not lead to this machine.
+func unresolved() []string {
+	var out []string
+	for _, name := range names {
+		addrs, err := net.LookupHost(name)
+		ok := err == nil && len(addrs) > 0
+		for _, a := range addrs {
+			if ip := net.ParseIP(a); ip == nil || !ip.IsLoopback() {
+				ok = false
+			}
+		}
+		if !ok {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
 func main() {
 	base := flag.Int("port", 7911, "first of three ports: cloud host, inbox, registry")
+	named := flag.Bool("names", false, "address the services as "+strings.Join(names, ", ")+" and not as localhost")
+	check := flag.Bool("check-names", false, "exit 0 if those names resolve to this machine, 1 if not")
 	flag.Parse()
-	if err := run(*base); err != nil {
+	if *check {
+		if missing := unresolved(); len(missing) > 0 {
+			fmt.Println("not resolved to this machine:", strings.Join(missing, ", "))
+			os.Exit(1)
+		}
+		return
+	}
+	if err := run(*base, *named); err != nil {
 		fmt.Fprintln(os.Stderr, "demo-server:", err)
 		os.Exit(1)
 	}
 }
 
-func run(base int) error {
+func run(base int, named bool) error {
+	address := func(i int) string {
+		host := "localhost"
+		if named {
+			host = names[i]
+		}
+		return fmt.Sprintf("http://%s:%d", host, base+i)
+	}
 	in := &inbox{}
-	reg, err := newRegistry(fmt.Sprintf("http://localhost:%d", base+2), fmt.Sprintf("http://localhost:%d", base+1), time.Now())
+	reg, err := newRegistry(address(2), address(1), time.Now())
 	if err != nil {
 		return err
 	}
@@ -252,16 +297,16 @@ func run(base int) error {
 		handler http.Handler
 	}{
 		{"cloud host", base, newCloud().handler()},
-		{"inbox", base + 1, in.handler()},
+		{"attacker's inbox", base + 1, in.handler()},
 		{"package registry", base + 2, reg.handler()},
 	}
 	failed := make(chan error, len(sites))
-	for _, s := range sites {
+	for i, s := range sites {
 		l, err := net.Listen("tcp", local(s.port))
 		if err != nil {
 			return fmt.Errorf("listen for the %s: %w", s.name, err)
 		}
-		fmt.Printf("%-17s http://localhost:%d\n", s.name, s.port)
+		fmt.Printf("%-17s %s\n", s.name, address(i))
 		srv := &http.Server{Handler: s.handler, ReadHeaderTimeout: 5 * time.Second}
 		go func() { failed <- srv.Serve(l) }()
 	}

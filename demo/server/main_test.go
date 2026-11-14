@@ -75,8 +75,21 @@ func TestInboxShowsWhatItIsSentAndNothingElse(t *testing.T) {
 	if !strings.Contains(body, "1 received") || !strings.Contains(body, "POST /collect?from=demo") || !strings.Contains(body, "token=&lt;b&gt;demo&lt;/b&gt;") {
 		t.Errorf("the inbox page does not show the item, escaped:\n%s", body)
 	}
+	// what a browser asks for on its own is not something received
+	for _, path := range []string{"/", "/favicon.ico", "/apple-touch-icon.png", "/anything"} {
+		get(t, srv.URL+path)
+	}
+	if got := len(in.received()); got != 1 {
+		t.Errorf("after a browser's own requests the inbox holds %d items, want still 1", got)
+	}
+	if status, _ := get(t, srv.URL+"/pixel?k=demo"); status != http.StatusCreated {
+		t.Errorf("GET /pixel answered %d, want it collected", status)
+	}
+	if got := in.received(); len(got) != 2 || !strings.Contains(got[1], "GET /pixel?k=demo") {
+		t.Errorf("the inbox holds %q, want the pixel request second", got)
+	}
 	for range maxInbox + 10 {
-		res, err := http.Post(srv.URL+"/x", "text/plain", strings.NewReader("more"))
+		res, err := http.Post(srv.URL+"/collect", "text/plain", strings.NewReader("more"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -178,8 +191,9 @@ func TestNothingInTheDemoNamesAPublicHost(t *testing.T) {
 				continue
 			}
 			host := u.Hostname()
-			// "localhost:" followed by a format verb or a shell variable is still this machine
-			if host != "localhost" && host != "127.0.0.1" {
+			// "localhost:" followed by a format verb or a shell variable is still
+			// this machine, and so is any name under .localhost (RFC 6761)
+			if host != "localhost" && host != "127.0.0.1" && !strings.HasSuffix(host, ".localhost") {
 				t.Errorf("%s names %s, which is not this machine", path, found)
 			}
 		}
@@ -187,6 +201,11 @@ func TestNothingInTheDemoNamesAPublicHost(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+	for _, name := range names {
+		if !strings.HasSuffix(name, ".localhost") {
+			t.Errorf("the service name %q is not under .localhost", name)
+		}
 	}
 	if local(7911) != "127.0.0.1:7911" {
 		t.Errorf("the servers listen on %s, want only this machine", local(7911))
