@@ -51,16 +51,19 @@ passes straight through: other git, npm and gh commands, and `GET` and `HEAD`
 requests, which show up in the ledger as before.
 
 When the agent exits, `rehearse` stays running and the page lists what was
-held. High-risk and medium-risk actions come first, under "Needs your
-decision". Low-risk ones are collapsed under "Routine". High-risk actions
-start unticked, the rest ticked. Each one shows a one-sentence explanation,
-what could go wrong, and the exact command or request, with the files a push
-would upload one click away.
+held, in three groups: "Look at these" (high risk), "Probably fine" (medium)
+and "Routine" (low, collapsed to one line). High-risk actions start
+unticked, the rest ticked. Each row says in plain words what the action
+would do, where it goes, and what the reviewer made of it, with the exact
+command one click away. Identical actions to the same place share a row.
 
-"Perform the ticked actions" replays them in the order they were held and
-stops at the first failure. "Discard everything" performs none. Pressing
-Ctrl+C in the terminal also discards. The result of each action is shown on
-the page, printed in the terminal and written to `rehearsal-ledger.json`.
+One button carries out the decision and says what it will do ("Allow 2,
+refuse 1"). Allowed actions are replayed in the order they were held,
+stopping at the first failure. "Discard all" performs none, and so does
+pressing Ctrl+C in the terminal. Afterwards the page shows a table of every
+held action with what was sent and what was decided, which can be copied as
+Markdown. The same result is printed in the terminal and written to
+`rehearsal-ledger.json`.
 
 A held push is not sent if its branch has moved since it was held, because you
 would be approving something other than what you were shown.

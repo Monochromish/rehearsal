@@ -3,101 +3,71 @@ import type { Server } from '../api'
 import IdentifierTag from './IdentifierTag.vue'
 
 defineProps<{ server: Server }>()
-
-function requestCount(n: number): string {
-  return n === 1 ? '1 request' : `${n} requests`
-}
 </script>
 
 <template>
-  <div :class="server.flagged ? 'card card-flag' : 'card'">
-    <div class="row">
+  <div class="row">
+    <div class="main">
       <div class="host">{{ server.host }}</div>
-      <div class="count">{{ requestCount(server.requests) }}</div>
+      <div v-if="server.received.length === 0" class="nothing">Received none of your details.</div>
+      <IdentifierTag v-for="item in server.received" :key="item.id" :item="item" />
     </div>
-    <div v-if="server.flagged" class="warning">
-      Check this one: it is not the model provider, and it received your details.
-    </div>
-    <div v-if="server.received.length === 0" class="nothing">Received none of your details.</div>
-    <div v-else class="received">
-      <div class="received-label">Received:</div>
-      <div class="tags">
-        <IdentifierTag v-for="item in server.received" :key="item.id" :item="item" />
-      </div>
-    </div>
+    <div class="count">{{ server.requests === 1 ? '1 request' : `${server.requests} requests` }}</div>
+    <div :class="server.flagged ? 'state state-high' : 'state'">{{ server.flagged ? 'Noted' : 'Normal' }}</div>
   </div>
 </template>
 
 <style scoped>
-.card {
-  display: flex;
-  flex-direction: column;
-  margin-bottom: 12px;
-  padding: 16px 20px;
-  border-width: 2px;
-  border-style: solid;
-  border-color: var(--border);
-  border-radius: 12px;
-  background-color: var(--surface);
-}
-
-.card-flag {
-  border-width: 4px;
-  border-color: var(--flag-border);
-}
-
 .row {
   display: flex;
   flex-direction: row;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  align-items: baseline;
+  align-items: flex-start;
+  min-height: 44px;
+  padding-top: 12px;
+  padding-bottom: 12px;
+  border-top-width: 1px;
+  border-top-style: solid;
+  border-top-color: var(--hairline);
+}
+
+.main {
+  display: flex;
+  flex-direction: column;
+  flex-grow: 1;
+  min-width: 0;
 }
 
 .host {
-  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
-  font-size: 28px;
-  font-weight: 700;
-  margin-right: 20px;
+  font-family: ui-monospace, 'Cascadia Mono', 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 16px;
   overflow-wrap: anywhere;
 }
 
-.count {
-  font-size: 24px;
-  color: var(--muted);
-}
-
-.warning {
-  margin-top: 10px;
-  padding: 8px 12px;
-  border-radius: 8px;
-  background-color: var(--flag-bg);
-  color: var(--flag-text);
-  font-size: 22px;
-  font-weight: 600;
-}
-
 .nothing {
-  margin-top: 8px;
-  font-size: 22px;
-  color: var(--muted);
+  font-size: 16px;
+  color: var(--secondary);
 }
 
-.received {
-  display: flex;
-  flex-direction: column;
-  margin-top: 10px;
+.count {
+  flex-shrink: 0;
+  width: 112px;
+  margin-left: 16px;
+  font-size: 16px;
+  color: var(--secondary);
+  text-align: right;
 }
 
-.received-label {
-  font-size: 22px;
+.state {
+  flex-shrink: 0;
+  width: 72px;
+  margin-left: 16px;
+  font-size: 16px;
   font-weight: 600;
-  margin-bottom: 6px;
+  color: var(--secondary);
+  text-align: right;
 }
 
-.tags {
-  display: flex;
-  flex-direction: row;
-  flex-wrap: wrap;
+.state-high {
+  color: var(--high);
 }
 </style>

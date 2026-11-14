@@ -4,17 +4,13 @@ import ServerCard from './ServerCard.vue'
 
 defineProps<{
   title: string
-  hint: string
-  emptyText: string
   servers: Server[]
 }>()
 </script>
 
 <template>
-  <div class="group">
-    <h2 class="title">{{ title }}</h2>
-    <div class="hint">{{ hint }}</div>
-    <div v-if="servers.length === 0" class="empty">{{ emptyText }}</div>
+  <div v-if="servers.length > 0" class="group">
+    <h2 class="heading">{{ title }}</h2>
     <ServerCard v-for="server in servers" :key="server.host" :server="server" />
   </div>
 </template>
@@ -23,28 +19,13 @@ defineProps<{
 .group {
   display: flex;
   flex-direction: column;
-  margin-bottom: 28px;
+  margin-bottom: 24px;
 }
 
-.title {
+.heading {
   margin: 0;
-  font-size: 34px;
-  font-weight: 700;
-}
-
-.hint {
-  font-size: 22px;
-  color: var(--muted);
-  margin-bottom: 12px;
-}
-
-.empty {
-  font-size: 22px;
-  color: var(--muted);
-  padding: 16px 20px;
-  border-width: 2px;
-  border-style: dashed;
-  border-color: var(--border);
-  border-radius: 12px;
+  margin-bottom: 8px;
+  font-size: 18px;
+  font-weight: 600;
 }
 </style>

@@ -1,382 +1,237 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import type { HeldAction } from '../api'
-import IdentifierTag from './IdentifierTag.vue'
+import { computed, ref, watch } from 'vue'
+import type { Identifier } from '../api'
+import type { Row } from '../present'
+import { outcomeOf, riskWords } from '../present'
 
 const props = defineProps<{
-  action: HeldAction
+  row: Row
   ticked: boolean
-  // false once the decision has been sent, or before every action is described
+  // false before every action is described and after the decision is sent
   canDecide: boolean
 }>()
 
-const emit = defineEmits<{ toggle: [id: string] }>()
+const emit = defineEmits<{ toggle: [row: Row] }>()
 
-const open = ref(false)
+const a = computed(() => props.row.first)
+const outcome = computed(() => outcomeOf(a.value))
 
-const risk = computed(() => props.action.review?.risk ?? 'medium')
-const riskLabel = computed(() => {
-  if (props.action.review === null) return 'BEING READ'
-  if (risk.value === 'high') return 'HIGH RISK'
-  if (risk.value === 'medium') return 'NEEDS A LOOK'
-  return 'ROUTINE'
+// the exact text starts open for high-risk rows only
+const open = ref(props.row.risk === 'high')
+watch(
+  () => props.row.risk,
+  (risk) => {
+    open.value = risk === 'high'
+  },
+)
+
+const reviewer = computed(() => {
+  const review = a.value.review
+  if (review === null) return 'Reviewer: still reading this one.'
+  const who = review.source === 'model' ? 'Reviewer (AI, on this computer)' : 'Reviewer (built-in rules, no AI)'
+  return `${who}: ${review.summary} ${review.concern}`
 })
 
-const writtenBy = computed(() => {
-  const review = props.action.review
-  if (review === null) return ''
-  if (review.source === 'model') return 'Explanation written by an AI model on this computer. Check it against the exact text below.'
-  return `Explanation written by Rehearsal's built-in rules, because ${review.note}.`
+const state = computed(() => {
+  if (outcome.value !== null) return { word: outcome.value.word, tone: outcome.value.tone }
+  if (a.value.review === null) return { word: 'Reading', tone: 'plain' }
+  return { word: riskWords[props.row.risk], tone: props.row.risk === 'low' ? 'plain' : props.row.risk }
 })
 
-const exactLabel = computed(() => (props.action.kind === 'http' ? 'Exact request' : 'Exact command'))
+const boxID = computed(() => `tick-${props.row.key}`)
 
-const result = computed(() => {
-  const a = props.action
-  if (a.outcome === 'applied') return { text: 'Done. This was performed.', bad: false }
-  if (a.outcome === 'failed') return { text: 'Failed. This was not completed.', bad: true }
-  if (a.outcome === 'not_applied') return { text: 'Not attempted, because an earlier action failed.', bad: true }
-  if (a.decision === 'refused') return { text: 'Refused. This was not performed.', bad: false }
-  if (a.decision === 'approved') return { text: 'Approved. Waiting its turn.', bad: false }
-  return null
-})
-
-function more(n: number): string {
-  return n > 0 ? `and ${n} more not shown` : ''
+function carried(item: Identifier): string {
+  return `Carries ${item.kind === 'canary' ? 'a planted value' : 'a detail of yours'}: ${item.label}`
 }
+
+function more(n: number, what: string): string {
+  return n > 0 ? `and ${n} more ${what}` : ''
+}
+
+defineExpose({ toggleCommand: () => (open.value = !open.value) })
 </script>
 
 <template>
-  <div :class="`item item-${risk}`">
-    <div class="head">
-      <div :class="`risk risk-${risk}`">{{ riskLabel }}</div>
-      <div v-if="action.needsRealAnswer" class="unreal">THE AGENT WAS GIVEN A MADE-UP ANSWER</div>
-    </div>
-
-    <div v-if="action.review !== null" class="summary">{{ action.review.summary }}</div>
-    <div v-else class="summary summary-pending">Working out what this would do…</div>
-    <div v-if="action.review !== null" class="concern">What could go wrong: {{ action.review.concern }}</div>
-    <div v-if="writtenBy !== ''" class="written-by">{{ writtenBy }}</div>
-
-    <div class="exact-label">{{ exactLabel }}</div>
-    <div class="exact">{{ action.exact }}</div>
-
-    <div v-if="action.needsRealAnswer" class="note">
-      The agent would normally use the real result of this action (for example the number of the thing it created). It
-      was given a stand-in answer, so what it did afterwards may be wrong.
-    </div>
-    <div v-if="action.secretFiles.length > 0" class="note note-bad">
-      Includes files that look like passwords or keys: {{ action.secretFiles.join(', ') }}
-    </div>
-
-    <div v-if="result !== null" :class="result.bad ? 'result result-bad' : 'result'">
-      <div>{{ result.text }}</div>
-      <div v-if="action.detail !== ''" class="result-detail">{{ action.detail }}</div>
-    </div>
-
-    <div class="controls">
-      <button
-        v-if="result === null && action.review !== null"
-        class="tick"
-        type="button"
-        role="checkbox"
-        :aria-checked="ticked"
-        :aria-label="`Perform this action: ${action.exact}`"
+  <div class="row" :data-row="row.key">
+    <div class="tick">
+      <input
+        v-if="outcome === null && a.review !== null"
+        :id="boxID"
+        class="box"
+        type="checkbox"
+        :checked="ticked"
         :disabled="!canDecide"
-        @click="emit('toggle', action.id)"
-      >
-        <span class="box">{{ ticked ? '✓' : '' }}</span>
-        <span>{{ ticked ? 'Ticked: this will be performed' : 'Not ticked: this will be skipped' }}</span>
-      </button>
-      <button class="more" type="button" :aria-expanded="open" @click="open = !open">
-        {{ open ? 'Hide details' : 'Show details' }}
-      </button>
+        @change="emit('toggle', row)"
+      />
     </div>
 
-    <div v-if="open" class="details">
-      <div class="row">
-        <div class="key">Goes to</div>
-        <div class="value">{{ action.destination }}</div>
+    <div class="main">
+      <label class="title" :for="boxID">{{ row.title }}</label>
+      <div class="route">{{ row.line }}</div>
+      <div class="reviewer">{{ reviewer }}</div>
+      <div v-if="a.needsRealAnswer" class="reviewer">
+        The agent was given a made-up answer for this. If it needed the real one, what it did next may be wrong.
       </div>
-      <div v-if="action.workDir !== ''" class="row">
-        <div class="key">Run from folder</div>
-        <div class="value">{{ action.workDir }}</div>
+      <div v-if="a.secretFiles.length > 0" class="warning">
+        Includes files that look like passwords or keys: {{ a.secretFiles.join(', ') }}
       </div>
-      <div v-if="action.subject !== ''" class="row">
-        <div class="key">What it sends</div>
-        <div class="value">{{ action.subject }}</div>
-      </div>
-      <div v-if="action.size > 0" class="row">
-        <div class="key">Size of the data</div>
-        <div class="value">{{ action.size }} bytes {{ action.contentType }}</div>
-      </div>
-      <div v-if="action.commits.length > 0" class="row">
-        <div class="key">Changes being uploaded</div>
-        <div class="value">
-          <div v-for="(message, i) in action.commits" :key="i">{{ message }}</div>
-          <div>{{ more(action.commitsOmitted) }}</div>
+      <div v-if="outcome !== null && a.detail !== ''" class="command">{{ a.detail }}</div>
+
+      <button class="link" type="button" :aria-expanded="open" @click="open = !open">
+        {{ open ? 'Hide command' : 'Show command' }}
+      </button>
+      <div v-if="open" class="command">
+        <div>{{ a.exact }}</div>
+        <div v-if="row.actions.length > 1">Issued {{ row.actions.length }} times.</div>
+        <div v-if="a.workDir !== ''">Run in {{ a.workDir }}</div>
+        <div v-if="a.size > 0">{{ a.size }} bytes {{ a.contentType }}</div>
+        <div v-for="item in a.carries" :key="item.id">{{ carried(item) }}</div>
+        <div v-if="a.commits.length > 0" class="list">
+          <div>Changes it uploads:</div>
+          <div v-for="(message, i) in a.commits" :key="i" class="entry">{{ message }}</div>
+          <div class="entry">{{ more(a.commitsOmitted, 'changes') }}</div>
         </div>
-      </div>
-      <div v-if="action.files.length > 0" class="row">
-        <div class="key">Files added or changed</div>
-        <div class="value">
-          <div v-for="file in action.files" :key="file">{{ file }}</div>
-          <div>{{ more(action.filesOmitted) }}</div>
-        </div>
-      </div>
-      <div class="row">
-        <div class="key">Details of yours it carries</div>
-        <div v-if="action.carries.length === 0" class="value">None found.</div>
-        <div v-else class="tags">
-          <IdentifierTag v-for="item in action.carries" :key="item.id" :item="item" />
+        <div v-if="a.files.length > 0" class="list">
+          <div>Files added or changed:</div>
+          <div v-for="file in a.files" :key="file" class="entry">{{ file }}</div>
+          <div class="entry">{{ more(a.filesOmitted, 'files') }}</div>
         </div>
       </div>
     </div>
+
+    <div :class="`state state-${state.tone}`">{{ state.word }}</div>
   </div>
 </template>
 
 <style scoped>
-.item {
-  display: flex;
-  flex-direction: column;
-  margin-bottom: 14px;
-  padding: 16px 20px;
-  border-width: 3px;
-  border-style: solid;
-  border-radius: 12px;
-  background-color: var(--surface);
-}
-
-.item-high {
-  border-color: var(--flag-border);
-}
-
-.item-medium {
-  border-color: var(--real-border);
-}
-
-.item-low {
-  border-color: var(--border);
-}
-
-.head {
+.row {
   display: flex;
   flex-direction: row;
-  flex-wrap: wrap;
-  margin-bottom: 8px;
-}
-
-.risk {
-  margin-right: 10px;
-  margin-bottom: 4px;
-  padding: 2px 10px;
-  border-radius: 6px;
-  font-size: 18px;
-  font-weight: 700;
-  letter-spacing: 1px;
-}
-
-.risk-high {
-  background-color: var(--flag-bg);
-  color: var(--flag-text);
-}
-
-.risk-medium {
-  background-color: var(--real-bg);
-  color: var(--real-text);
-}
-
-.risk-low {
-  background-color: var(--bg);
-  color: var(--muted);
-}
-
-.unreal {
-  margin-bottom: 4px;
-  padding: 2px 10px;
-  border-radius: 6px;
-  background-color: var(--canary-bg);
-  color: var(--canary-text);
-  font-size: 18px;
-  font-weight: 700;
-  letter-spacing: 1px;
-}
-
-.summary {
-  font-size: 28px;
-  font-weight: 700;
-}
-
-.summary-pending {
-  color: var(--muted);
-}
-
-.concern {
-  margin-top: 6px;
-  font-size: 22px;
-}
-
-.written-by {
-  margin-top: 6px;
-  font-size: 18px;
-  color: var(--muted);
-}
-
-.exact-label {
-  margin-top: 12px;
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--muted);
-}
-
-.exact {
-  padding: 8px 12px;
-  border-radius: 8px;
-  background-color: var(--bg);
-  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
-  font-size: 20px;
-  overflow-wrap: anywhere;
-}
-
-.note {
-  margin-top: 10px;
-  padding: 8px 12px;
-  border-radius: 8px;
-  background-color: var(--canary-bg);
-  color: var(--canary-text);
-  font-size: 20px;
-}
-
-.note-bad {
-  background-color: var(--flag-bg);
-  color: var(--flag-text);
-  font-weight: 600;
-}
-
-.result {
-  display: flex;
-  flex-direction: column;
-  margin-top: 12px;
-  padding: 8px 12px;
-  border-radius: 8px;
-  background-color: var(--bg);
-  font-size: 22px;
-  font-weight: 700;
-}
-
-.result-bad {
-  background-color: var(--flag-bg);
-  color: var(--flag-text);
-}
-
-.result-detail {
-  margin-top: 4px;
-  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
-  font-size: 18px;
-  font-weight: 400;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
-.controls {
-  display: flex;
-  flex-direction: row;
-  flex-wrap: wrap;
-  align-items: center;
-  margin-top: 12px;
+  align-items: flex-start;
+  min-height: 44px;
+  padding-top: 12px;
+  padding-bottom: 12px;
+  border-top-width: 1px;
+  border-top-style: solid;
+  border-top-color: var(--hairline);
 }
 
 .tick {
   display: flex;
-  flex-direction: row;
-  align-items: center;
-  min-height: 48px;
-  margin-right: 12px;
-  margin-bottom: 6px;
-  padding: 6px 14px;
-  border-width: 2px;
-  border-style: solid;
-  border-color: var(--border);
-  border-radius: 8px;
-  background-color: var(--surface);
-  color: var(--text);
-  font-family: inherit;
-  font-size: 22px;
-  font-weight: 600;
-  cursor: pointer;
+  flex-shrink: 0;
+  width: 32px;
+  padding-top: 4px;
 }
 
 .box {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  width: 30px;
-  height: 30px;
-  margin-right: 10px;
-  border-width: 3px;
-  border-style: solid;
-  border-color: var(--text);
-  border-radius: 6px;
-  font-size: 24px;
-  line-height: 1;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: var(--text);
 }
 
-.more {
-  min-height: 48px;
-  margin-bottom: 6px;
-  padding: 6px 14px;
-  border-width: 2px;
-  border-style: solid;
-  border-color: var(--border);
-  border-radius: 8px;
-  background-color: var(--surface);
-  color: var(--text);
-  font-family: inherit;
-  font-size: 20px;
-  cursor: pointer;
+.box:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
 }
 
-.details {
-  display: flex;
-  flex-direction: column;
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top-width: 2px;
-  border-top-style: solid;
-  border-top-color: var(--border);
-}
-
-.row {
-  display: flex;
-  flex-direction: row;
-  flex-wrap: wrap;
-  margin-bottom: 8px;
-}
-
-.key {
-  flex-basis: 260px;
-  flex-shrink: 0;
-  font-size: 20px;
-  font-weight: 600;
-  color: var(--muted);
-}
-
-.value {
+.main {
   display: flex;
   flex-direction: column;
   flex-grow: 1;
-  flex-basis: 300px;
   min-width: 0;
-  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
-  font-size: 20px;
+}
+
+.title {
+  font-size: 18px;
+  font-weight: 600;
   overflow-wrap: anywhere;
 }
 
-.tags {
+.route {
+  margin-top: 4px;
+  font-family: ui-monospace, 'Cascadia Mono', 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 14px;
+  color: var(--secondary);
+  overflow-wrap: anywhere;
+}
+
+.reviewer {
+  margin-top: 4px;
+  font-size: 16px;
+  color: var(--secondary);
+}
+
+.warning {
+  margin-top: 4px;
+  font-size: 16px;
+  color: var(--high);
+}
+
+.link {
+  align-self: flex-start;
+  min-height: 24px;
+  margin-top: 8px;
+  padding: 0;
+  border-width: 0;
+  background-color: transparent;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 14px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.link:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+
+.command {
   display: flex;
-  flex-direction: row;
-  flex-wrap: wrap;
-  flex-grow: 1;
-  flex-basis: 300px;
+  flex-direction: column;
+  margin-top: 8px;
+  padding: 8px 12px;
+  border-radius: 4px;
+  background-color: var(--sunken);
+  font-family: ui-monospace, 'Cascadia Mono', 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 14px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  margin-top: 8px;
+}
+
+.entry {
+  padding-left: 16px;
+}
+
+.state {
+  flex-shrink: 0;
+  width: 72px;
+  margin-left: 16px;
+  font-size: 16px;
+  font-weight: 600;
+  text-align: right;
+}
+
+.state-high {
+  color: var(--high);
+}
+
+.state-medium {
+  color: var(--medium);
+}
+
+.state-allowed {
+  color: var(--allowed);
+}
+
+.state-plain {
+  color: var(--secondary);
 }
 </style>

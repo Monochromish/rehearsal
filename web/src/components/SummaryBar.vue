@@ -1,81 +1,36 @@
 <script setup lang="ts">
-import type { Totals } from '../api'
-
 defineProps<{
-  totals: Totals
-  // false when rehearse was started with --no-hold
-  holding: boolean
+  // tool name, wrapped command and what the session is doing
+  meta: string
+  // the one sentence that says where things stand
+  status: string
 }>()
 </script>
 
 <template>
-  <div class="bar">
-    <div class="tile">
-      <div class="number">{{ totals.servers }}</div>
-      <div class="label">servers contacted</div>
-    </div>
-    <div class="tile">
-      <div class="number">{{ totals.requests }}</div>
-      <div class="label">requests sent</div>
-    </div>
-    <div class="tile">
-      <div class="number">{{ totals.identifiers_sent }}</div>
-      <div class="label">times a server got one of your details</div>
-    </div>
-    <div :class="totals.flagged_servers > 0 ? 'tile tile-flag' : 'tile'">
-      <div class="number">{{ totals.flagged_servers }}</div>
-      <div class="label">unexpected servers that got your details</div>
-    </div>
-    <div v-if="holding" :class="totals.held > 0 ? 'tile tile-held' : 'tile'">
-      <div class="number">{{ totals.held }}</div>
-      <div class="label">actions held for you to decide on</div>
-    </div>
+  <div class="summary">
+    <div class="meta">{{ meta }}</div>
+    <h1 class="status">{{ status }}</h1>
   </div>
 </template>
 
 <style scoped>
-.bar {
-  display: flex;
-  flex-direction: row;
-  flex-wrap: wrap;
-  margin-bottom: 20px;
-}
-
-.tile {
+.summary {
   display: flex;
   flex-direction: column;
-  flex-grow: 1;
-  flex-basis: 200px;
-  box-sizing: border-box;
-  margin-right: 12px;
-  margin-bottom: 12px;
-  padding: 16px 20px;
-  border-width: 2px;
-  border-style: solid;
-  border-color: var(--border);
-  border-radius: 12px;
-  background-color: var(--surface);
+  margin-bottom: 32px;
 }
 
-.tile-flag {
-  border-color: var(--flag-border);
-  background-color: var(--flag-bg);
-  color: var(--flag-text);
+.meta {
+  margin-bottom: 8px;
+  font-size: 14px;
+  color: var(--secondary);
 }
 
-.tile-held {
-  border-color: var(--real-border);
-  background-color: var(--real-bg);
-  color: var(--real-text);
-}
-
-.number {
-  font-size: 60px;
-  font-weight: 700;
-  line-height: 1.1;
-}
-
-.label {
-  font-size: 22px;
+.status {
+  margin: 0;
+  font-size: 32px;
+  font-weight: 600;
+  line-height: 1.2;
 }
 </style>

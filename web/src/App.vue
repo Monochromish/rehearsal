@@ -2,43 +2,65 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { applyApproved, discardAll, getHeld, getLedger, subscribe } from './api'
 import type { Held, Ledger, LogEvent, Subscription } from './api'
-import { palettes, preferredTheme } from './theme'
+import { statusSentence } from './present'
+import { palettes, systemTheme, watchSystemTheme } from './theme'
 import type { ThemeName } from './theme'
 import SummaryBar from './components/SummaryBar.vue'
+import UnusualList from './components/UnusualList.vue'
+import DecisionPanel from './components/DecisionPanel.vue'
+import SessionReport from './components/SessionReport.vue'
 import ServerGroup from './components/ServerGroup.vue'
 import WatchList from './components/WatchList.vue'
-import DecisionPanel from './components/DecisionPanel.vue'
+
+// the most events kept for the timeline
+const maxEvents = 2000
 
 const ledger = ref<Ledger | null>(null)
 const held = ref<Held | null>(null)
+const events = ref<LogEvent[]>([])
 const connected = ref(false)
 const ledgerProblem = ref('')
 const updateProblem = ref('')
 const decisionProblem = ref('')
 const sending = ref(false)
-const problems = computed(() =>
-  [ledgerProblem.value, updateProblem.value, decisionProblem.value].filter((p) => p !== ''),
-)
-const theme = ref<ThemeName>(preferredTheme())
+const serversOpen = ref(false)
+
+const query = new URLSearchParams(window.location.search)
+const asked = query.get('theme')
+// follows the system until the reader picks one
+const followSystem = ref(asked !== 'light' && asked !== 'dark')
+const theme = ref<ThemeName>(asked === 'light' || asked === 'dark' ? asked : systemTheme())
 
 let subscription: Subscription | null = null
+let stopWatchingTheme: (() => void) | null = null
 let refreshTimer: number | undefined
 
 const phase = computed(() => ledger.value?.phase ?? 'running')
-const agentName = computed(() => ledger.value?.command[0] ?? 'the agent')
+const agent = computed(() => ledger.value?.command[0] ?? 'the agent')
 const providers = computed(() => (ledger.value?.servers ?? []).filter((s) => s.category === 'provider'))
 const others = computed(() => (ledger.value?.servers ?? []).filter((s) => s.category === 'other'))
-const showDecision = computed(() => held.value !== null && held.value.actions.length > 0 && phase.value !== 'running')
+const deciding = computed(() => phase.value === 'reviewing' || phase.value === 'deciding' || phase.value === 'applying')
 
-const statusText = computed(() => {
-  if (phase.value === 'finished') return 'Session ended. This is the final ledger.'
-  if (!connected.value) return 'Not connected'
-  if (phase.value === 'reviewing') return 'The agent has finished. Reading what it tried to do.'
-  if (phase.value === 'deciding') return 'Waiting for your decision'
-  if (phase.value === 'applying') return 'Performing what you approved'
-  return 'Watching live'
+const meta = computed(() => {
+  const doing = {
+    running: 'watching',
+    reviewing: 'the agent has exited',
+    deciding: 'the agent has exited',
+    applying: 'the agent has exited',
+    finished: 'session over',
+  }[phase.value]
+  const link = connected.value || phase.value === 'finished' ? '' : ', not connected'
+  return `Rehearsal, wrapping ${agent.value}, ${doing}${link}`
 })
-const statusClass = computed(() => (connected.value && phase.value !== 'finished' ? 'status status-live' : 'status'))
+
+const status = computed(() => {
+  if (ledger.value === null || held.value === null) return ''
+  return statusSentence(ledger.value, held.value)
+})
+
+const problems = computed(() =>
+  [ledgerProblem.value, updateProblem.value, decisionProblem.value].filter((p) => p !== ''),
+)
 
 function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
@@ -58,7 +80,7 @@ async function refresh(): Promise<void> {
       connected.value = false
     }
   } catch (e: unknown) {
-    ledgerProblem.value = `Could not read the ledger: ${describe(e)}`
+    ledgerProblem.value = `Could not read the session from Rehearsal: ${describe(e)}. Check that rehearse is still running in your terminal. If it has exited, the final record is in rehearsal-ledger.json.`
   }
 }
 
@@ -72,6 +94,7 @@ function refreshSoon(): void {
 }
 
 function onEvent(event: LogEvent): void {
+  if (events.value.length < maxEvents) events.value.push(event)
   if (event.type !== 'session_ended') {
     refreshSoon()
     return
@@ -90,13 +113,14 @@ async function send(decision: () => Promise<void>): Promise<void> {
   try {
     await decision()
   } catch (e: unknown) {
-    decisionProblem.value = `Your decision did not reach Rehearsal, so nothing was done: ${describe(e)}`
+    decisionProblem.value = `Your decision did not reach Rehearsal, so nothing was done: ${describe(e)}. Try the button again, or press Ctrl+C in the terminal to discard everything.`
   }
   sending.value = false
   await refresh()
 }
 
-function toggleTheme(): void {
+function switchTheme(): void {
+  followSystem.value = false
   theme.value = theme.value === 'dark' ? 'light' : 'dark'
 }
 
@@ -108,64 +132,79 @@ onMounted(() => {
       connected.value = isConnected
     },
     (error) => {
-      updateProblem.value = `Rehearsal sent an update this page could not read: ${error.message}`
+      updateProblem.value = `Rehearsal sent an update this page could not read: ${error.message}. Reload the page. If it keeps happening, the page and rehearse are different versions: rebuild with sh build.sh.`
     },
   )
+  stopWatchingTheme = watchSystemTheme((next) => {
+    if (followSystem.value) theme.value = next
+  })
 })
 
 onUnmounted(() => {
   subscription?.close()
+  stopWatchingTheme?.()
   window.clearTimeout(refreshTimer)
 })
 </script>
 
 <template>
-  <div class="page" :style="palettes[theme]">
-    <div class="content">
-      <div class="top">
-        <div class="heading">
-          <h1 class="title">Rehearsal</h1>
-          <div class="subtitle">
-            Where <span class="agent">{{ agentName }}</span> sent your data
-          </div>
-        </div>
-        <div class="controls">
-          <div :class="statusClass">{{ statusText }}</div>
-          <button class="theme-button" type="button" @click="toggleTheme">
-            {{ theme === 'dark' ? 'Light theme' : 'Dark theme' }}
-          </button>
-        </div>
+  <div class="page" :style="{ ...palettes[theme], colorScheme: theme }">
+    <div class="column">
+      <div v-if="ledger === null || held === null" class="loading">
+        <div class="meta">Rehearsal</div>
+        <h1 v-if="problems.length === 0" class="waiting">Connecting to Rehearsal.</h1>
+      </div>
+      <SummaryBar v-else :meta="meta" :status="status" />
+
+      <div v-if="problems.length > 0" class="problems" role="alert">
+        <h2 class="problem-heading">Something went wrong</h2>
+        <div v-for="problem in problems" :key="problem" class="problem">{{ problem }}</div>
+        <div v-if="ledger !== null" class="problem">What you see below is the last state that was read.</div>
       </div>
 
-      <div v-if="problems.length > 0" class="problem" role="alert">
-        <div v-for="problem in problems" :key="problem">{{ problem }}</div>
-        <div v-if="ledger !== null">What you see below is the last ledger that was read.</div>
-      </div>
+      <div v-if="ledger !== null && held !== null" class="body">
+        <UnusualList v-if="phase === 'running'" :ledger="ledger" :held="held" :agent="agent" />
 
-      <div v-if="ledger === null && problems.length === 0" class="loading">Waiting for the ledger…</div>
-
-      <div v-if="ledger !== null" class="body">
         <DecisionPanel
-          v-if="showDecision && held !== null"
+          v-if="deciding && held.actions.length > 0"
           :held="held"
+          :agent="agent"
           :busy="sending"
           @apply="(approve) => void send(() => applyApproved(approve))"
           @discard="void send(discardAll)"
         />
-        <SummaryBar :totals="ledger.totals" :holding="ledger.holding" />
-        <ServerGroup
-          title="Model provider"
-          hint="The AI service the agent is meant to talk to."
-          empty-text="Nothing sent to the model provider yet."
-          :servers="providers"
+
+        <SessionReport
+          v-if="phase === 'finished'"
+          :ledger="ledger"
+          :held="held"
+          :events="events"
+          :agent="agent"
+          :servers-open="serversOpen"
+          @toggle-servers="serversOpen = !serversOpen"
         />
-        <ServerGroup
-          title="Everything else"
-          hint="Every other server the agent or its tools contacted."
-          empty-text="No other servers contacted."
-          :servers="others"
-        />
-        <WatchList :identifiers="ledger.watching" />
+
+        <div v-if="phase !== 'finished'" class="quiet">
+          <span class="sentence">
+            {{ phase === 'running' ? 'Everything else is normal.' : `${ledger.totals.requests} requests went out while the agent ran.` }}
+          </span>
+          <button class="link" type="button" :aria-expanded="serversOpen" @click="serversOpen = !serversOpen">
+            {{ serversOpen ? 'Hide servers' : 'Show all servers' }}
+          </button>
+        </div>
+
+        <div v-if="serversOpen" class="servers">
+          <ServerGroup title="Model provider" :servers="providers" />
+          <ServerGroup title="Everything else" :servers="others" />
+          <div v-if="ledger.servers.length === 0" class="none">No server has been contacted.</div>
+          <WatchList :identifiers="ledger.watching" />
+        </div>
+      </div>
+
+      <div class="bottom">
+        <button class="link small" type="button" @click="switchTheme">
+          {{ theme === 'dark' ? 'Use the light theme' : 'Use the dark theme' }}
+        </button>
       </div>
     </div>
   </div>
@@ -175,108 +214,124 @@ onUnmounted(() => {
 .page {
   display: flex;
   flex-direction: column;
-  align-items: center;
   min-height: 100vh;
   box-sizing: border-box;
-  padding: 32px;
+  padding: 48px 24px;
   background-color: var(--bg);
   color: var(--text);
-  font-family: system-ui, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-  font-size: 22px;
-  line-height: 1.35;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  font-size: 18px;
+  font-weight: 400;
+  line-height: 1.4;
 }
 
-.content {
+.column {
   display: flex;
   flex-direction: column;
   width: 100%;
-  max-width: 1200px;
-}
-
-.top {
-  display: flex;
-  flex-direction: row;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  align-items: flex-end;
-  margin-bottom: 28px;
-}
-
-.heading {
-  display: flex;
-  flex-direction: column;
-  margin-right: 24px;
-  margin-bottom: 8px;
-}
-
-.title {
-  margin: 0;
-  font-size: 44px;
-  font-weight: 700;
-}
-
-.subtitle {
-  font-size: 26px;
-  color: var(--muted);
-}
-
-.agent {
-  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
-  color: var(--text);
-}
-
-.controls {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  margin-bottom: 8px;
-}
-
-.status {
-  font-size: 22px;
-  font-weight: 600;
-  color: var(--muted);
-  margin-right: 20px;
-}
-
-.status-live {
-  color: var(--live);
-}
-
-.theme-button {
-  font-family: inherit;
-  font-size: 20px;
-  padding: 8px 16px;
-  border-width: 2px;
-  border-style: solid;
-  border-color: var(--border);
-  border-radius: 8px;
-  background-color: var(--surface);
-  color: var(--text);
-  cursor: pointer;
-}
-
-.problem {
-  margin-bottom: 20px;
-  padding: 16px 20px;
-  border-width: 3px;
-  border-style: solid;
-  border-color: var(--flag-border);
-  border-radius: 12px;
-  background-color: var(--flag-bg);
-  color: var(--flag-text);
-  font-size: 22px;
-  font-weight: 600;
-  overflow-wrap: anywhere;
+  max-width: 760px;
 }
 
 .loading {
-  font-size: 26px;
-  color: var(--muted);
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 32px;
+}
+
+.meta {
+  margin-bottom: 8px;
+  font-size: 14px;
+  color: var(--secondary);
+}
+
+.waiting {
+  margin: 0;
+  font-size: 32px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.problems {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 32px;
+  padding-top: 12px;
+  border-top-width: 1px;
+  border-top-style: solid;
+  border-top-color: var(--high);
+}
+
+.problem-heading {
+  margin: 0;
+  margin-bottom: 8px;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--high);
+}
+
+.problem {
+  margin-bottom: 8px;
+  font-size: 16px;
+  overflow-wrap: anywhere;
 }
 
 .body {
   display: flex;
   flex-direction: column;
+}
+
+.quiet {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  min-height: 44px;
+  margin-bottom: 16px;
+  font-size: 16px;
+  color: var(--secondary);
+}
+
+.sentence {
+  margin-right: 8px;
+}
+
+.link {
+  min-height: 24px;
+  padding: 0;
+  border-width: 0;
+  background-color: transparent;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 16px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.link:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+
+.small {
+  font-size: 14px;
+  color: var(--secondary);
+}
+
+.servers {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 16px;
+}
+
+.none {
+  margin-bottom: 24px;
+  font-size: 16px;
+  color: var(--secondary);
+}
+
+.bottom {
+  display: flex;
+  flex-direction: row;
+  margin-top: 32px;
 }
 </style>

@@ -101,17 +101,30 @@ times a second at most. The ledger is computed in one place, the Go code.
 
 `web/src/api.ts` checks the shape of everything it receives by hand and
 throws on a mismatch. There is no schema library because it would be a new
-dependency. A failed read or an unreadable update is shown in a banner at the
-top of the page, above the last ledger that was read.
+dependency. A failed read or an unreadable update is shown at the top of the
+page, above the last state that was read, with what to do about it.
 
-Headings are real `h1` and `h2` elements and the theme switch is a real
-`button`. There are no landmark elements (`main`, `header`, `section`, `nav`)
-yet: the components will be ported to a native renderer that maps a limited
-set of tags, and which ones it supports is still to be confirmed.
+Headings are real `h1` and `h2` elements, controls are real buttons, and
+tick boxes are real checkboxes with labels. There are no landmark elements
+(`main`, `header`, `section`, `nav`) yet: the components will be ported to a
+native renderer that maps a limited set of tags, and which ones it supports
+is still to be confirmed.
 
 The two colour palettes are plain data applied to the root element as CSS
-variables. The page starts in the system's theme and has a button to switch.
-Styles use flexbox, single class selectors and margins only.
+variables, and no colour is written anywhere else. The page follows the
+system's theme until the reader picks one with the link at the bottom.
+Styles use flexbox, class selectors (with `:focus-visible` and `:disabled`
+where a control needs them) and margins only.
+
+The page has one column and three states, and shows only what fits the
+moment: what is unusual while the agent runs, the decision once it has
+exited, and a report afterwards. The full server list and the watched values
+are one click away in every state, never on screen by default.
+
+With `?fixture=NAME` in its address the page shows a scripted session and
+contacts nothing. The names are in `web/src/fixtures.ts`. They exist so each
+state can be looked at, and screenshotted, without an agent or a model.
+`&theme=dark` or `&theme=light` fixes the theme the same way.
 
 The built page isn't committed. `sh build.sh` builds it into
 `internal/webui/dist`, where a placeholder file keeps `go build` and
@@ -325,18 +338,32 @@ with the commit recorded when it was held.
 
 ## The decision screen
 
-The tick box is a `button` with the checkbox role, and the collapsed lists
-open with buttons too. `input`, `label`, `details` and `summary` would be
-the natural elements, but they are outside the tags confirmed for the native
-renderer.
+The largest line of a row says what the action would do, and it is built by
+the page from facts in the API ("Overwrite main at ...", "Send 2 KB to ...").
+The model's two sentences come below it in smaller text, always behind the
+label "Reviewer (AI, on this computer)". So the line a reader takes in first
+is never something the model wrote. When the rules wrote the explanation the
+label says "Reviewer (built-in rules, no AI)".
 
-The exact command or request is always visible next to the explanation, not
-inside the expandable detail. The detail holds the rest: destination,
-folder, files, commit messages and identifiers.
+Each row also has a monospace line, "what, from where -> where", that is
+always visible. The full command, with the files and commit messages of a
+push, is behind "Show command", which starts open for high-risk rows only.
 
-Colours reuse the existing palette. High risk takes the flag colours and
-medium the "yours" colours. No new tokens were added, since design direction
-is still to come.
+Actions that are identical in every way that shows (same command, same
+destination, same rating) share one row and one tick box, titled with the
+count: "8 pushes to origin". Rows are in order of destination.
+
+Actions the reviewer has not described yet are listed under "Still being
+read" and not under a risk heading, and the decision buttons appear only
+once all of them have been described.
+
+The button that carries out the decision states the outcome ("Allow 2,
+refuse 1") and names what cannot be undone among the ticked actions: a
+publish, a force push or a deletion. There is no confirmation dialog.
+
+`j` and `k` move between rows, space ticks, Enter shows or hides the focused
+row's command. Collapsed lists open with buttons, not `details`, to keep to
+tags a limited renderer will have.
 
 ## Claude Code's auto mode
 

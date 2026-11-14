@@ -2,6 +2,9 @@
 // server-sent events today) can be swapped without touching the components.
 // Everything that arrives is checked here before the components see it.
 
+import { fixtureNames, fixtureSession } from './fixtures'
+import type { FixtureSession } from './fixtures'
+
 export type Kind = 'real' | 'canary'
 export type Category = 'provider' | 'other'
 export type Where = 'address' | 'header' | 'body'
@@ -108,6 +111,8 @@ export interface HeldAction {
   commitsOmitted: number
   secretFiles: string[]
   carries: Identifier[]
+  force: boolean
+  deletes: boolean
   needsRealAnswer: boolean
   review: Review | null
   decision: Decision
@@ -123,6 +128,10 @@ export interface Held {
 export interface LogEvent {
   seq: number
   type: EventType
+  time: string
+  // one line for the timeline: the request or the held action. Empty for
+  // events the timeline does not show.
+  what: string
 }
 
 export interface Subscription {
@@ -183,14 +192,18 @@ function word(item: unknown, what: string): string {
   return text({ item }, 'item', what)
 }
 
-// The server leaves out fields that are empty, zero or false. These three
-// read such a field, and still reject one that is present with the wrong type.
+// The server leaves out fields that are empty, zero or false. These read
+// such a field, and still reject one that is present with the wrong type.
 function maybeText(from: Fields, key: string, what: string): string {
   return from[key] === undefined ? '' : text(from, key, what)
 }
 
 function maybeCount(from: Fields, key: string, what: string): number {
   return from[key] === undefined ? 0 : count(from, key, what)
+}
+
+function maybeFlag(from: Fields, key: string, what: string): boolean {
+  return from[key] === undefined ? false : flag(from, key, what)
 }
 
 function maybeWords(from: Fields, key: string, what: string): string[] {
@@ -281,7 +294,9 @@ function parseAction(value: unknown, what: string): HeldAction {
     commitsOmitted: maybeCount(from, 'commits_omitted', what),
     secretFiles: maybeWords(from, 'secret_files', what),
     carries: list(from, 'carries', what, parseIdentifier),
-    needsRealAnswer: from['needs_real_answer'] === undefined ? false : flag(from, 'needs_real_answer', what),
+    force: maybeFlag(from, 'force', what),
+    deletes: maybeFlag(from, 'deletes', what),
+    needsRealAnswer: maybeFlag(from, 'needs_real_answer', what),
     review: from['review'] === null ? null : parseReview(from['review'], `${what}.review`),
     decision: oneOf(from, 'decision', decisions, what),
     outcome: oneOf(from, 'outcome', outcomes, what),
@@ -299,7 +314,15 @@ function parseHeld(value: unknown): Held {
 
 function parseLogEvent(value: unknown): LogEvent {
   const from = fields(value, 'event')
-  return { seq: count(from, 'seq', 'event'), type: oneOf(from, 'type', eventTypes, 'event') }
+  const type = oneOf(from, 'type', eventTypes, 'event')
+  const data = fields(from['data'], 'event.data')
+  let what = ''
+  if (type === 'request') {
+    what = `${text(data, 'method', 'event.data')} ${text(data, 'host', 'event.data')}${text(data, 'path', 'event.data')}`
+  } else if (type === 'action_held') {
+    what = `held: ${parseAction({ ...data, carries: [], review: null, decision: '', outcome: '', detail: '' }, 'event.data').exact}`
+  }
+  return { seq: count(from, 'seq', 'event'), type, time: text(from, 'time', 'event'), what }
 }
 
 async function get(path: string, what: string): Promise<unknown> {
@@ -311,21 +334,38 @@ async function get(path: string, what: string): Promise<unknown> {
   return body
 }
 
+// With ?fixture=NAME in the address the page shows a scripted session and
+// never contacts rehearse. It is how each state is looked at without an agent.
+const fixtureName = new URLSearchParams(window.location.search).get('fixture')
+
+function fixture(): FixtureSession | null {
+  if (fixtureName === null) return null
+  const session = fixtureSession(fixtureName)
+  if (session === null) {
+    throw new Error(`there is no fixture called "${fixtureName}". Use one of: ${fixtureNames.join(', ')}`)
+  }
+  return session
+}
+
 export async function getLedger(): Promise<Ledger> {
-  return parseLedger(await get('/api/ledger', 'ledger'))
+  return fixture()?.ledger() ?? parseLedger(await get('/api/ledger', 'ledger'))
 }
 
 export async function getHeld(): Promise<Held> {
-  return parseHeld(await get('/api/held', 'held actions'))
+  return fixture()?.held() ?? parseHeld(await get('/api/held', 'held actions'))
 }
 
 /** Performs the approved actions and refuses every other held action. */
 export async function applyApproved(approve: string[]): Promise<void> {
+  const scripted = fixture()
+  if (scripted !== null) return scripted.apply(approve)
   await decide({ decision: 'apply', approve })
 }
 
 /** Refuses every held action. */
 export async function discardAll(): Promise<void> {
+  const scripted = fixture()
+  if (scripted !== null) return scripted.apply([])
   await decide({ decision: 'discard' })
 }
 
@@ -350,6 +390,12 @@ export function subscribe(
   onConnection: (connected: boolean) => void,
   onError: (error: Error) => void,
 ): Subscription {
+  const scripted = fixtureName === null ? null : fixtureSession(fixtureName)
+  if (scripted !== null) {
+    onConnection(true)
+    scripted.events().forEach(onEvent)
+    return { close: () => undefined }
+  }
   const source = new EventSource('/api/events')
   source.onopen = () => onConnection(true)
   source.onerror = () => onConnection(false)

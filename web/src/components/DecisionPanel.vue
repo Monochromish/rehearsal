@@ -1,10 +1,13 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
-import type { Held, HeldAction } from '../api'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import type { Held, HeldAction, Risk } from '../api'
+import type { Row } from '../present'
+import { decisionLabel, riskOf, rowsFor } from '../present'
 import HeldItem from './HeldItem.vue'
 
 const props = defineProps<{
   held: Held
+  agent: string
   // true while a decision is on its way to rehearse
   busy: boolean
 }>()
@@ -18,6 +21,7 @@ const emit = defineEmits<{
 // its description arrives: high risk starts unticked, the rest ticked.
 const ticked = reactive(new Map<string, boolean>())
 const routineOpen = ref(false)
+const panel = ref<HTMLElement | null>(null)
 
 watch(
   () => props.held.actions,
@@ -31,92 +35,111 @@ watch(
   { immediate: true },
 )
 
-const rank = { high: 0, medium: 1, low: 2 }
-
-function byRisk(wanted: (a: HeldAction) => boolean): HeldAction[] {
-  return props.held.actions
-    .filter(wanted)
-    .slice()
-    .sort((a, b) => rank[a.review?.risk ?? 'medium'] - rank[b.review?.risk ?? 'medium'])
+function rows(risk: Risk): Row[] {
+  return rowsFor(
+    props.held.actions.filter((a) => a.review !== null && riskOf(a) === risk),
+    props.agent,
+  )
 }
 
-const important = computed(() => byRisk((a) => a.review === null || a.review.risk !== 'low'))
-const routine = computed(() => byRisk((a) => a.review !== null && a.review.risk === 'low'))
+// not yet described, so not yet in any risk group
+const unread = computed(() =>
+  rowsFor(
+    props.held.actions.filter((a) => a.review === null),
+    props.agent,
+  ),
+)
+const high = computed(() => rows('high'))
+const medium = computed(() => rows('medium'))
+const low = computed(() => rows('low'))
+const lowCount = computed(() => low.value.reduce((n, r) => n + r.actions.length, 0))
 
-const described = computed(() => props.held.actions.filter((a) => a.review !== null).length)
-const canDecide = computed(() => props.held.phase === 'deciding' && !props.busy)
 const decided = computed(() => props.held.phase === 'applying' || props.held.phase === 'finished')
-const approve = computed(() => props.held.actions.filter((a) => ticked.get(a.id) === true).map((a) => a.id))
+const canDecide = computed(() => props.held.phase === 'deciding' && !props.busy)
 
-const byRules = computed(() => props.held.actions.filter((a) => a.review?.source === 'rules').length)
+const allowed = computed<HeldAction[]>(() => props.held.actions.filter((a) => ticked.get(a.id) === true))
+const label = computed(() => decisionLabel(allowed.value, props.held.actions.length - allowed.value.length))
 
-const heading = computed(() => {
-  if (props.held.phase === 'finished') return 'What happened to the held actions'
-  if (props.held.phase === 'applying') return 'Performing what you approved'
-  return 'Needs your decision'
+const routineLine = computed(() => {
+  const n = lowCount.value
+  const what = n === 1 ? '1 routine action' : `${n} routine actions`
+  return decided.value ? `${what}.` : `${what}, ticked.`
 })
 
-const hint = computed(() => {
-  const n = props.held.actions.length
-  if (props.held.phase === 'reviewing') return `Reading what the agent tried to do: ${described.value} of ${n} done.`
-  if (decided.value) return 'Each held action is shown with what became of it.'
-  return 'The agent tried to do these things. None of them has happened yet. Tick the ones you want performed.'
-})
+function isTicked(row: Row): boolean {
+  return row.actions.every((a) => ticked.get(a.id) === true)
+}
 
-function toggle(id: string): void {
-  if (canDecide.value) {
-    ticked.set(id, ticked.get(id) !== true)
+function toggle(row: Row): void {
+  if (!canDecide.value) return
+  const next = !isTicked(row)
+  for (const a of row.actions) {
+    ticked.set(a.id, next)
   }
 }
 
+// j and k move between rows, Enter opens or closes the focused row's
+// command. Space ticks, which the tick box does by itself when focused.
+function onKey(event: KeyboardEvent): void {
+  if (event.ctrlKey || event.metaKey || event.altKey || panel.value === null) return
+  const boxes = [...panel.value.querySelectorAll<HTMLElement>('[data-row] input, [data-row] button')]
+  const firstOfEachRow = boxes.filter((el, i) => i === 0 || el.closest('[data-row]') !== boxes[i - 1]?.closest('[data-row]'))
+  const here = document.activeElement instanceof HTMLElement ? document.activeElement.closest('[data-row]') : null
+  const at = firstOfEachRow.findIndex((el) => el.closest('[data-row]') === here)
+  if (event.key === 'j' || event.key === 'k') {
+    const next = at + (event.key === 'j' ? 1 : -1)
+    firstOfEachRow[Math.max(0, Math.min(firstOfEachRow.length - 1, next))]?.focus()
+    event.preventDefault()
+  } else if (event.key === 'Enter' && here !== null && !(event.target instanceof HTMLButtonElement)) {
+    here.querySelector<HTMLButtonElement>('button')?.click()
+    event.preventDefault()
+  }
+}
+
+onMounted(() => window.addEventListener('keydown', onKey))
+onUnmounted(() => window.removeEventListener('keydown', onKey))
 </script>
 
 <template>
-  <div class="panel">
-    <h2 class="title">{{ heading }}</h2>
-    <div class="hint">{{ hint }}</div>
-    <div v-if="byRules > 0" class="fallback">
-      The AI model on this computer did not describe {{ byRules === held.actions.length ? 'these' : `${byRules} of these` }}.
-      Those explanations come from Rehearsal's built-in rules instead.
+  <div ref="panel" class="panel">
+    <div v-if="high.length > 0" class="group">
+      <h2 class="heading">Look at these</h2>
+      <HeldItem v-for="row in high" :key="row.key" :row="row" :ticked="isTicked(row)" :can-decide="canDecide" @toggle="toggle" />
     </div>
 
-    <div v-if="important.length === 0" class="none">Nothing here needs a close look.</div>
-    <HeldItem
-      v-for="action in important"
-      :key="action.id"
-      :action="action"
-      :ticked="ticked.get(action.id) === true"
-      :can-decide="canDecide"
-      @toggle="toggle"
-    />
+    <div v-if="medium.length > 0" class="group">
+      <h2 class="heading">Probably fine</h2>
+      <HeldItem v-for="row in medium" :key="row.key" :row="row" :ticked="isTicked(row)" :can-decide="canDecide" @toggle="toggle" />
+    </div>
 
-    <div v-if="routine.length > 0" class="routine">
-      <h2 class="title">Routine</h2>
-      <div class="hint">
-        {{ routine.length === 1 ? '1 action' : `${routine.length} actions` }} rated low risk. They start ticked.
+    <div v-if="low.length > 0" class="group">
+      <h2 class="heading">Routine</h2>
+      <div class="quiet">
+        <span class="count">{{ routineLine }}</span>
+        <button class="link" type="button" :aria-expanded="routineOpen" @click="routineOpen = !routineOpen">
+          {{ routineOpen ? 'Hide' : 'Show' }}
+        </button>
       </div>
-      <button class="expand" type="button" :aria-expanded="routineOpen" @click="routineOpen = !routineOpen">
-        {{ routineOpen ? 'Hide the routine actions' : 'Show the routine actions' }}
-      </button>
-      <div v-if="routineOpen" class="routine-list">
-        <HeldItem
-          v-for="action in routine"
-          :key="action.id"
-          :action="action"
-          :ticked="ticked.get(action.id) === true"
-          :can-decide="canDecide"
-          @toggle="toggle"
-        />
+      <div v-if="routineOpen" class="rows">
+        <HeldItem v-for="row in low" :key="row.key" :row="row" :ticked="isTicked(row)" :can-decide="canDecide" @toggle="toggle" />
       </div>
     </div>
 
-    <div v-if="!decided" class="buttons">
-      <button class="apply" type="button" :disabled="!canDecide" @click="emit('apply', approve)">
-        {{ approve.length === 1 ? 'Perform the 1 ticked action' : `Perform the ${approve.length} ticked actions` }}
-      </button>
-      <button class="discard" type="button" :disabled="!canDecide" @click="emit('discard')">Discard everything</button>
+    <div v-if="unread.length > 0" class="group">
+      <h2 class="heading">Still being read</h2>
+      <HeldItem v-for="row in unread" :key="row.key" :row="row" :ticked="false" :can-decide="false" @toggle="toggle" />
     </div>
-    <div v-if="busy && !decided" class="hint">Sending your decision…</div>
+
+    <div v-if="held.phase === 'deciding'" class="footer">
+      <button class="primary" type="button" :disabled="!canDecide" @click="emit('apply', allowed.map((a) => a.id))">
+        {{ label }}
+      </button>
+      <button class="plain" type="button" :disabled="!canDecide" @click="emit('discard')">Discard all</button>
+    </div>
+    <div v-if="!decided" class="hint">
+      Nothing here has happened yet.
+      {{ held.phase === 'deciding' ? 'Keys: j and k move, space ticks, enter shows the command.' : 'You can decide once every action has been read.' }}
+    </div>
   </div>
 </template>
 
@@ -124,108 +147,129 @@ function toggle(id: string): void {
 .panel {
   display: flex;
   flex-direction: column;
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
   margin-bottom: 32px;
 }
 
-.title {
+.heading {
   margin: 0;
-  font-size: 34px;
-  font-weight: 700;
+  margin-bottom: 8px;
+  font-size: 24px;
+  font-weight: 600;
 }
 
-.hint {
-  margin-bottom: 12px;
-  font-size: 22px;
-  color: var(--muted);
-}
-
-.fallback {
-  margin-bottom: 12px;
-  padding: 10px 14px;
-  border-width: 2px;
-  border-style: dashed;
-  border-color: var(--real-border);
-  border-radius: 10px;
-  background-color: var(--real-bg);
-  color: var(--real-text);
-  font-size: 20px;
-}
-
-.none {
-  margin-bottom: 14px;
-  padding: 16px 20px;
-  border-width: 2px;
-  border-style: dashed;
-  border-color: var(--border);
-  border-radius: 12px;
-  font-size: 22px;
-  color: var(--muted);
-}
-
-.routine {
+.rows {
   display: flex;
   flex-direction: column;
   margin-top: 8px;
 }
 
-.routine-list {
-  display: flex;
-  flex-direction: column;
-  margin-top: 12px;
-}
-
-.expand {
-  align-self: flex-start;
-  min-height: 48px;
-  padding: 6px 16px;
-  border-width: 2px;
-  border-style: solid;
-  border-color: var(--border);
-  border-radius: 8px;
-  background-color: var(--surface);
-  color: var(--text);
-  font-family: inherit;
-  font-size: 22px;
-  cursor: pointer;
-}
-
-.buttons {
+.quiet {
   display: flex;
   flex-direction: row;
   flex-wrap: wrap;
-  margin-top: 16px;
+  align-items: center;
+  min-height: 44px;
+  border-top-width: 1px;
+  border-top-style: solid;
+  border-top-color: var(--hairline);
+  font-size: 18px;
+  color: var(--secondary);
 }
 
-.apply {
-  min-height: 56px;
-  margin-right: 14px;
-  margin-bottom: 10px;
-  padding: 10px 22px;
-  border-width: 3px;
+.count {
+  margin-right: 8px;
+}
+
+.link {
+  min-height: 24px;
+  padding: 0;
+  border-width: 0;
+  background-color: transparent;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 18px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.link:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+
+.footer {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  padding-top: 16px;
+  border-top-width: 1px;
+  border-top-style: solid;
+  border-top-color: var(--hairline);
+}
+
+.primary {
+  min-height: 44px;
+  margin-right: 12px;
+  margin-bottom: 8px;
+  padding: 8px 16px;
+  border-width: 1px;
   border-style: solid;
-  border-color: var(--live);
-  border-radius: 10px;
-  background-color: var(--live);
+  border-color: var(--text);
+  border-radius: 4px;
+  background-color: var(--text);
   color: var(--bg);
   font-family: inherit;
-  font-size: 24px;
-  font-weight: 700;
+  font-size: 18px;
+  font-weight: 600;
   cursor: pointer;
 }
 
-.discard {
-  min-height: 56px;
-  margin-bottom: 10px;
-  padding: 10px 22px;
-  border-width: 3px;
+.plain {
+  min-height: 44px;
+  margin-bottom: 8px;
+  padding: 8px 16px;
+  border-width: 1px;
   border-style: solid;
-  border-color: var(--flag-border);
-  border-radius: 10px;
-  background-color: var(--surface);
-  color: var(--flag-text);
+  border-color: var(--hairline);
+  border-radius: 4px;
+  background-color: transparent;
+  color: var(--text);
   font-family: inherit;
-  font-size: 24px;
-  font-weight: 700;
+  font-size: 18px;
   cursor: pointer;
+}
+
+.primary:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+
+.plain:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+
+.primary:disabled {
+  border-color: var(--hairline);
+  background-color: transparent;
+  color: var(--secondary);
+  cursor: default;
+}
+
+.plain:disabled {
+  color: var(--secondary);
+  cursor: default;
+}
+
+.hint {
+  margin-top: 8px;
+  margin-bottom: 32px;
+  font-size: 14px;
+  color: var(--secondary);
 }
 </style>
