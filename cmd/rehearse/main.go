@@ -130,6 +130,7 @@ func main() {
 	root.AddCommand(policyCommand())
 	root.AddCommand(replayCommands()...)
 	root.AddCommand(investigateCommand())
+	root.AddCommand(reviewCommand())
 	f := root.Flags()
 	f.SetInterspersed(false) // everything after the command belongs to it
 	f.IntVar(&opts.port, "port", 0, "port for the page (default: any free port)")

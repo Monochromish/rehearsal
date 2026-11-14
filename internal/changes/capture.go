@@ -205,6 +205,47 @@ func Overlay(dir, scratch, base string, layer []LayerFile) (tree string, err err
 	return writeTree(root, env)
 }
 
+// Tree returns the tree that a revision names: a commit, a branch, a tag.
+func Tree(dir, rev string) (string, error) {
+	root, err := top(dir)
+	if err != nil {
+		return "", err
+	}
+	// a name that begins with a dash is a name, not an option
+	out, err := git(root, nil, nil, "rev-parse", "--verify", "--quiet", "--end-of-options", rev+"^{tree}")
+	if err != nil || strings.TrimSpace(out) == "" {
+		return "", fmt.Errorf("%q does not name a commit in this repository", rev)
+	}
+	return strings.TrimSpace(out), nil
+}
+
+// MergeBase returns the commit at which b left a.
+func MergeBase(dir, a, b string) (string, error) {
+	root, err := top(dir)
+	if err != nil {
+		return "", err
+	}
+	out, err := git(root, nil, nil, "merge-base", "--end-of-options", a, b)
+	if err != nil || strings.TrimSpace(out) == "" {
+		return "", fmt.Errorf("%q and %q have no commit in common, or one of them does not name a commit", a, b)
+	}
+	return strings.TrimSpace(out), nil
+}
+
+// EmptyTree returns the name this repository gives a tree with nothing in
+// it, which is what a repository with no commit yet is compared against.
+func EmptyTree(dir string) (string, error) {
+	root, err := top(dir)
+	if err != nil {
+		return "", err
+	}
+	out, err := git(root, nil, strings.NewReader(""), "hash-object", "-t", "tree", "--stdin")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
+}
+
 // Patch is the difference between two trees as one unified diff, with
 // renames found. The user's own diff settings are not used: no outside
 // program is run and nothing is converted for display. truncated says the

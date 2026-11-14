@@ -1058,3 +1058,33 @@ waits for it, at most the 90 seconds.
 **Two failures in a row end it.** One unusable answer costs one sentence.
 After a second in a row the model is taken to have gone, and the session
 is not held up waiting for 38 more timeouts.
+
+## Review without a session
+
+`rehearse review` exists because the sorting is useful on changes that no
+`rehearse` session produced. It reuses everything: the same snapshot
+through a scratch index, the same diff, the same rules, the same budgeted
+reading by the model.
+
+**It is recorded as a session.** A review writes a session folder with a
+log, the diff and a signed checkpoint. That costs a few kilobytes and buys
+three things without new code: the API already serves it, so the app
+window shows it; `rehearse verify` and `rehearse investigate` work on it;
+and "what did I look at before I merged this" has an answer later. The
+first entry says it was a review and of what, and lists no watched values,
+because nothing was run and nothing could leave.
+
+**Ranges are git's, read narrowly.** `A..B`, `A...B` and a single name are
+accepted, each resolved to a tree with `rev-parse --verify` after
+`--end-of-options`, so a name that starts with a dash is a name. A single
+name means "since that commit", against the files as they are, which is
+what `git diff NAME` means and what someone checking an agent's
+uncommitted work on a branch wants.
+
+**A review that cannot be made leaves nothing.** A bad range or a folder
+that is not a repository is an error, and the session folder made for it
+is removed.
+
+**The window, or the terminal.** The browser page does not show changes,
+so opening it would show an empty session. The review opens the app when
+one is named, and otherwise prints.

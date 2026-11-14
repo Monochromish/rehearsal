@@ -443,6 +443,50 @@ A replay puts stand-in values where the recording says a request carried
 something, so the same rules fire. It does not reproduce what the servers
 answered, apart from which other hosts a reply named.
 
+## Reviewing changes without a session
+
+```
+rehearse review [range]
+```
+
+sorts any set of changes the way a session's changes are sorted, with no
+agent and no proxy. It is for work that was not done under `rehearse`: a
+branch a colleague's agent produced, or what is sitting uncommitted in your
+own folder.
+
+| You type | What is compared |
+|---|---|
+| `rehearse review` | everything not yet committed (staged, unstaged and new files) with the last commit |
+| `rehearse review main..feature` | two commits |
+| `rehearse review main...feature` | `feature` with the point where it left `main` |
+| `rehearse review v1.2` | that commit with the files as they are now |
+
+It prints the parts under "To read", "To skim" and "Mechanical", each with
+the rule that put it there:
+
+```
+Uncommitted changes, in /home/ada/shop: 3 files, 8 added and 1 removed.
+
+To read (1)
+  src/pay.go:1  +1 -1  changes code
+
+To skim (2)
+  README.md:1  +2 -0  documentation
+  src/new_test.go  +5 -0  new test file
+```
+
+When the local model is there, it then adds its sentence under each part to
+read or skim, within the same budget as in a session. `--no-model` leaves
+it out.
+
+Nothing in the repository changes: the comparison goes through an index
+file of its own, as a session's does. The review is kept as a session under
+`~/.local/state/rehearsal/sessions`, with its diff and a signed record, so
+`rehearse verify` works on it and the app window can show it. When
+`REHEARSAL_APP` names the app, the window opens on the review and stays
+until you press Ctrl-C. The page in the browser does not show changes, so
+without the app the terminal is where the review is read.
+
 ## Investigating a record
 
 ```
@@ -786,6 +830,7 @@ described in the section named.
 | `rehearse record [session]` | Save a finished session as a recording. | Replaying a session |
 | `rehearse replay <recording>` | Play a recording back with no agent and no network. | Replaying a session |
 | `rehearse bench` | Play the scenarios and print what was stopped, and what the investigation rebuilt. | Scenarios |
+| `rehearse review [range]` | Sort any set of changes by how much reading they need. | Reviewing changes without a session |
 | `rehearse investigate [session or folder]` | Say what happened in one record or several, each statement beside its raw entries. | Investigating a record |
 
 A session is named by its folder under `~/.local/state/rehearsal/sessions`,

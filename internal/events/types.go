@@ -139,6 +139,9 @@ type SessionStarted struct {
 	PolicyHash string `json:"policy_hash,omitempty"`
 	// true when no agent ran: a recording was played back
 	Replay bool `json:"replay,omitempty"`
+	// set when no agent ran and a set of changes was reviewed on its own:
+	// what the changes were, in words
+	Review string `json:"review,omitempty"`
 	// no signing key could be found or made, so the end of this session's
 	// log will not be signed
 	Unsigned bool `json:"unsigned,omitempty"`
