@@ -1,5 +1,6 @@
-// Command rehearse wraps an AI coding agent and shows where its requests,
-// and the user's data, go.
+// Command rehearse wraps an AI coding agent, shows where its requests and
+// the user's data go, and holds the actions that change something outside
+// this machine until the user approves them.
 package main
 
 import (
@@ -8,43 +9,81 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
 
+	"rehearsal/handlers"
+	"rehearsal/internal/apply"
 	"rehearsal/internal/events"
+	"rehearsal/internal/hold"
 	"rehearsal/internal/ident"
 	"rehearsal/internal/ledger"
 	"rehearsal/internal/proxy"
+	"rehearsal/internal/review"
 	"rehearsal/internal/run"
 	"rehearsal/internal/server"
+	"rehearsal/internal/standin"
 	"rehearsal/internal/webui"
 )
 
 const (
-	canaryFile = "CANARY.txt"
-	ledgerFile = "rehearsal-ledger.json"
+	canaryFile   = "CANARY.txt"
+	ledgerFile   = "rehearsal-ledger.json"
+	defaultModel = "qwen3.8:27b"
+
+	envReviewerURL   = "REHEARSAL_REVIEWER_URL"
+	envReviewerModel = "REHEARSAL_REVIEWER_MODEL"
+
+	// held actions described by the model at the same time
+	reviewsAtOnce = 3
 )
 
 var defaultProviders = []string{"api.anthropic.com", "mcp-proxy.anthropic.com", "api.openai.com"}
+
+// Hosts the agent reports its own telemetry to. Writes to them are not
+// held, because an agent whose telemetry fails may misbehave. They still
+// appear in the ledger.
+var defaultAllow = []string{"http-intake.logs.us5.datadoghq.com"}
 
 type options struct {
 	port      int
 	providers []string
 	noOpen    bool
+
+	noHold          bool
+	allow           []string
+	handlersDir     string
+	reviewerURL     string
+	reviewerModel   string
+	reviewerTimeout time.Duration
 }
 
 func main() {
-	var opts options
+	// Called as git, npm or gh, this binary is the stand-in for that program.
+	if name := filepath.Base(os.Args[0]); slices.Contains(standin.Names, name) {
+		os.Exit(standin.Main(name, os.Args[1:]))
+	}
+
+	opts := options{reviewerModel: defaultModel}
+	if m := os.Getenv(envReviewerModel); m != "" {
+		opts.reviewerModel = m
+	}
 	exitCode := 0
 	root := &cobra.Command{
 		Use:   "rehearse [flags] <command> [args...]",
-		Short: "Wrap an AI coding agent and see where its requests and your data go",
+		Short: "Wrap an AI coding agent: see where your data goes, and approve what it sends out",
 		Example: "  rehearse claude\n" +
+			"  rehearse --no-hold claude\n" +
 			"  rehearse --provider api.example.com -- my-agent --some-flag",
 		Args:          cobra.MinimumNArgs(1),
 		SilenceUsage:  true,
@@ -55,10 +94,17 @@ func main() {
 			return err
 		},
 	}
-	root.Flags().SetInterspersed(false) // everything after the command belongs to it
-	root.Flags().IntVar(&opts.port, "port", 0, "port for the page (default: any free port)")
-	root.Flags().StringSliceVar(&opts.providers, "provider", defaultProviders, "hosts to treat as the model provider")
-	root.Flags().BoolVar(&opts.noOpen, "no-open", false, "do not open the page in a window")
+	f := root.Flags()
+	f.SetInterspersed(false) // everything after the command belongs to it
+	f.IntVar(&opts.port, "port", 0, "port for the page (default: any free port)")
+	f.StringSliceVar(&opts.providers, "provider", defaultProviders, "hosts to treat as the model provider")
+	f.BoolVar(&opts.noOpen, "no-open", false, "do not open the page in a window")
+	f.BoolVar(&opts.noHold, "no-hold", false, "hold nothing: only record where requests go")
+	f.StringSliceVar(&opts.allow, "allow-host", defaultAllow, "hosts whose writes are never held (the agent's own telemetry)")
+	f.StringVar(&opts.handlersDir, "handlers", "", "folder of extra handler files for stand-in answers")
+	f.StringVar(&opts.reviewerURL, "reviewer-url", os.Getenv(envReviewerURL), "OpenAI-compatible address of the local model (default: Ollama on this machine, or on the Windows host under WSL; env "+envReviewerURL+")")
+	f.StringVar(&opts.reviewerModel, "reviewer-model", opts.reviewerModel, "model that describes held actions (env "+envReviewerModel+")")
+	f.DurationVar(&opts.reviewerTimeout, "reviewer-timeout", 45*time.Second, "how long to wait for the model on each action")
 
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "rehearse:", err)
@@ -69,8 +115,9 @@ func main() {
 	os.Exit(exitCode)
 }
 
-// rehearse runs one session. The exit code is the wrapped command's; the
-// error is for anything of ours that went wrong around it.
+// rehearse runs one session. The exit code is the wrapped command's, or 1
+// when an approved action failed. The error is for anything of ours that
+// went wrong around it.
 func rehearse(opts options, command []string) (exitCode int, err error) {
 	// cleanup runs a shutdown step and keeps its error instead of losing it.
 	cleanup := func(what string, fn func() error) {
@@ -110,6 +157,11 @@ func rehearse(opts options, command []string) (exitCode int, err error) {
 	}
 	canaries := ident.NewCanaries()
 	identifiers := append(own, canaries...)
+	matcher := ident.NewMatcher(identifiers)
+	var keep []string // canary values: ours, so they may be shown
+	for _, c := range canaries {
+		keep = append(keep, c.Value)
+	}
 	removeCanary, err := plantCanaryFile(workDir, ident.Value(canaries, ident.IDCanaryWord))
 	if err != nil {
 		return 1, err
@@ -118,7 +170,7 @@ func rehearse(opts options, command []string) (exitCode int, err error) {
 
 	// Only the program name is stored: its arguments may contain secrets.
 	if _, err := log.Append(events.TypeSessionStarted, events.SessionStarted{
-		Command: command[:1], WorkDir: workDir, ProviderHosts: opts.providers, Identifiers: identifiers,
+		Command: command[:1], WorkDir: workDir, ProviderHosts: opts.providers, Identifiers: identifiers, Holding: !opts.noHold,
 	}); err != nil {
 		return 1, err
 	}
@@ -128,12 +180,92 @@ func rehearse(opts options, command []string) (exitCode int, err error) {
 		return 1, fmt.Errorf("open the proxy log: %w", err)
 	}
 	defer cleanup("close the proxy log", proxyLog.Close)
-	recorder := proxy.NewRecorder(log, ident.NewMatcher(identifiers), opts.providers)
-	px, err := proxy.Start(caDir, recorder, proxyLog)
+
+	// Everything through which the agent can still add to the session. It
+	// is all stopped as soon as the agent exits, so that what the user is
+	// asked to decide on cannot grow afterwards.
+	var intake []func()
+	stopIntake := sync.OnceFunc(func() {
+		for _, stop := range slices.Backward(intake) {
+			stop()
+		}
+	})
+	defer stopIntake()
+
+	recorders := []*proxy.Recorder{proxy.NewRecorder(log, matcher, opts.providers)}
+	env := []string{
+		"REHEARSAL_CANARY_EMAIL=" + ident.Value(canaries, ident.IDCanaryEmail),
+		"REHEARSAL_CANARY_API_KEY=" + ident.Value(canaries, ident.IDCanaryAPIKey),
+	}
+
+	var holder *hold.Holder
+	var store *hold.Store
+	var reviewer reviewer
+	if !opts.noHold {
+		if store, err = hold.NewStore(filepath.Join(sessionDir, "held")); err != nil {
+			return 1, err
+		}
+		// whatever happens, nothing held outlives the session
+		defer cleanup("delete the held actions", store.RemoveAll)
+		holder = hold.NewHolder(log, store)
+
+		answers, err := handlers.Shipped()
+		if err == nil && opts.handlersDir != "" {
+			answers, err = answers.WithDir(opts.handlersDir)
+		}
+		if err != nil {
+			return 1, fmt.Errorf("load the handler files: %w", err)
+		}
+		recorders[0].HoldWrites(proxy.Holding{Holder: holder, Handlers: answers, Allow: opts.allow})
+
+		if reviewer, err = newReviewer(opts); err != nil {
+			return 1, err
+		}
+		if reviewer.model != nil {
+			// Load the model while the agent works, so the first review is
+			// not the slow one. Start-up does not wait for this, and it is
+			// allowed to fail: the model may not be running yet, and a
+			// review that still cannot reach it falls back to the rules.
+			warm, stopWarmUp := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer stopWarmUp()
+			go func() { _ = reviewer.model.WarmUp(warm) }()
+		}
+
+		// git and gh use POST for reads, so commands the stand-ins know to
+		// be read-only go through a second proxy that records but never holds.
+		passRecorder := proxy.NewRecorder(log, matcher, opts.providers)
+		recorders = append(recorders, passRecorder)
+		pass, err := proxy.Start(caDir, passRecorder, proxyLog)
+		if err != nil {
+			return 1, err
+		}
+		intake = append(intake, func() { cleanup("stop the pass-through proxy", pass.Close) })
+
+		socket, err := hold.Listen(holder, hold.Masker{Matcher: matcher, Keep: keep})
+		if err != nil {
+			return 1, err
+		}
+		intake = append(intake, func() { cleanup("close the stand-in socket", socket.Close) })
+
+		shimDir := filepath.Join(sessionDir, "bin")
+		if err := installStandins(shimDir); err != nil {
+			return 1, err
+		}
+		defer cleanup("remove the stand-ins", func() error { return os.RemoveAll(shimDir) })
+		env = append(env,
+			"PATH="+shimDir+string(os.PathListSeparator)+os.Getenv("PATH"),
+			standin.EnvShimDir+"="+shimDir,
+			standin.EnvSocket+"="+socket.Path,
+			standin.EnvPassProxy+"="+pass.URL,
+		)
+	}
+
+	px, err := proxy.Start(caDir, recorders[0], proxyLog)
 	if err != nil {
 		return 1, err
 	}
-	defer cleanup("stop the proxy", px.Close)
+	intake = append(intake, func() { cleanup("stop the proxy", px.Close) })
+	env = append(env, run.ProxyEnv(px.URL, px.CACertPath)...)
 
 	web, err := server.Start(log, webui.FS(), opts.port)
 	if err != nil {
@@ -142,7 +274,7 @@ func rehearse(opts options, command []string) (exitCode int, err error) {
 	// Runs before the deferred steps above, so the page server has drained
 	// by the time the event log closes.
 	defer cleanup("stop the page server", func() error {
-		time.Sleep(300 * time.Millisecond) // let the page receive the final events
+		time.Sleep(700 * time.Millisecond) // let the page read the final state
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 		return web.Shutdown(ctx)
@@ -155,28 +287,159 @@ func rehearse(opts options, command []string) (exitCode int, err error) {
 		}
 	}
 
-	env := append(run.ProxyEnv(px.URL, px.CACertPath),
-		"REHEARSAL_CANARY_EMAIL="+ident.Value(canaries, ident.IDCanaryEmail),
-		"REHEARSAL_CANARY_API_KEY="+ident.Value(canaries, ident.IDCanaryAPIKey),
-	)
 	exitCode, err = run.Command(command, env)
 
+	stopIntake()
+	if holder != nil {
+		holder.Close()
+	}
 	if _, aerr := log.Append(events.TypeSessionEnded, events.SessionEnded{ExitCode: exitCode}); aerr != nil {
 		err = errors.Join(err, aerr)
 	}
-	if rerr := recorder.Err(); rerr != nil {
-		err = errors.Join(err, fmt.Errorf("the ledger is incomplete, and requests were refused after this: %w", rerr))
+	for _, r := range recorders {
+		if rerr := r.Err(); rerr != nil {
+			err = errors.Join(err, fmt.Errorf("the ledger is incomplete, and requests were refused after this: %w", rerr))
+		}
+	}
+
+	if holder != nil && holder.Count() > 0 {
+		d := decider{log: log, store: store, reviewer: reviewer, web: web, keep: keep}
+		failed, derr := d.run()
+		err = errors.Join(err, derr)
+		if failed && exitCode == 0 {
+			exitCode = 1
+		}
 	}
 	cleanup("write the ledger", func() error { return report(log, workDir) })
 	return exitCode, err
 }
 
-func report(log *events.Log, workDir string) error {
+// reviewer is the local model, or the reason there is none.
+type reviewer struct {
+	model *review.Model
+	note  string
+}
+
+// newReviewer fails only for an address the user gave that cannot be
+// used. When no address was given and none can be worked out, held actions
+// are described by the built-in rules instead.
+func newReviewer(opts options) (reviewer, error) {
+	url := opts.reviewerURL
+	if url == "" {
+		var err error
+		if url, err = review.DefaultURL(); err != nil {
+			return reviewer{note: fmt.Sprintf("no local model could be located (%v)", err)}, nil
+		}
+	}
+	model, err := review.NewModel(url, opts.reviewerModel, opts.reviewerTimeout)
+	return reviewer{model: model}, err
+}
+
+// decider takes a session from "the agent has exited with actions held" to
+// "each one is applied, refused or failed".
+type decider struct {
+	log      *events.Log
+	store    *hold.Store
+	reviewer reviewer
+	web      *server.Server
+	keep     []string
+}
+
+func (d decider) run() (failed bool, err error) {
+	// Ctrl+C at any point from here means: discard, and stop what is running.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	l, err := current(d.log)
+	if err != nil {
+		return false, err
+	}
+	fmt.Fprintf(os.Stderr, "\nrehearse: %s held and not yet performed. Reading them...\n", count(len(l.Actions), "action"))
+	// A few at a time, each written to the log as it finishes so the page
+	// can show it straight away.
+	var (
+		wg        sync.WaitGroup
+		slots     = make(chan struct{}, reviewsAtOnce)
+		mu        sync.Mutex
+		reviewErr error
+	)
+	for _, a := range l.Actions {
+		slots <- struct{}{}
+		wg.Go(func() {
+			defer func() { <-slots }()
+			v, err := d.describe(ctx, a)
+			if err == nil {
+				_, err = d.log.Append(events.TypeActionReviewed, events.ActionReviewed{
+					ActionID: a.ID, Summary: v.Summary, Risk: v.Risk, Concern: v.Concern, Source: v.Source, Note: v.Note,
+				})
+			}
+			if err != nil {
+				mu.Lock()
+				reviewErr = errors.Join(reviewErr, err)
+				mu.Unlock()
+			}
+		})
+	}
+	wg.Wait()
+	if reviewErr != nil {
+		return false, reviewErr
+	}
+
+	fmt.Fprintf(os.Stderr, "rehearse: decide what happens to them on the page: %s\n          (Ctrl+C here discards them all)\n", d.web.URL)
+	decision := server.Decision{Discard: true}
+	select {
+	case decision = <-d.web.Decisions():
+	case <-ctx.Done():
+	}
+
+	var approved []events.ActionHeld
+	for _, a := range l.Actions {
+		if !decision.Discard && slices.Contains(decision.Approve, a.ID) {
+			approved = append(approved, a.ActionHeld)
+			_, err = d.log.Append(events.TypeActionApproved, events.ActionApproved{ActionID: a.ID})
+		} else {
+			_, err = d.log.Append(events.TypeActionRefused, events.ActionRefused{ActionID: a.ID})
+		}
+		if err != nil {
+			return false, err
+		}
+	}
+	applier := apply.Applier{Log: d.log, Store: d.store, Keep: d.keep}
+	_, failed, err = applier.Run(ctx, approved)
+	return failed, err
+}
+
+func (d decider) describe(ctx context.Context, a ledger.Action) (review.Verdict, error) {
+	if d.reviewer.model == nil {
+		v := review.ByRules(a.ActionHeld)
+		v.Note = d.reviewer.note
+		return v, nil
+	}
+	payload, err := d.store.Load(a.ID)
+	if err != nil {
+		return review.Verdict{}, err
+	}
+	content := payload.Body
+	if a.Kind != events.ActionHTTP {
+		content = payload.Stdin
+	}
+	var carries []string
+	for _, id := range a.Carries {
+		carries = append(carries, id.Label)
+	}
+	return d.reviewer.model.Review(ctx, a.ActionHeld, carries, review.Excerpt(content, d.keep)), nil
+}
+
+func current(log *events.Log) (ledger.Ledger, error) {
 	evs, err := log.Since(0)
 	if err != nil {
-		return err
+		return ledger.Ledger{}, err
 	}
-	l, err := ledger.Build(evs)
+	return ledger.Build(evs)
+}
+
+func report(log *events.Log, workDir string) error {
+	l, err := current(log)
 	if err != nil {
 		return err
 	}
@@ -189,6 +452,41 @@ func report(log *events.Log, workDir string) error {
 		return err
 	}
 	fmt.Fprintf(os.Stderr, "\nSaved to %s\n", ledgerFile)
+	return nil
+}
+
+// installStandins puts git, npm and gh in dir, each a link to a copy of
+// this program. The copy is in the session's own folder because every git
+// call the agent makes starts it, and that has to be quick.
+func installStandins(dir string) (err error) {
+	self, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("find this program to make the stand-ins: %w", err)
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("create the stand-in folder: %w", err)
+	}
+	src, err := os.Open(self)
+	if err != nil {
+		return fmt.Errorf("make the stand-ins: %w", err)
+	}
+	defer src.Close() // read-only
+	const copyName = "rehearse-standin"
+	dst, err := os.OpenFile(filepath.Join(dir, copyName), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o700)
+	if err != nil {
+		return fmt.Errorf("make the stand-ins: %w", err)
+	}
+	if _, err := io.Copy(dst, src); err != nil {
+		return errors.Join(fmt.Errorf("make the stand-ins: %w", err), dst.Close())
+	}
+	if err := dst.Close(); err != nil {
+		return fmt.Errorf("make the stand-ins: %w", err)
+	}
+	for _, name := range standin.Names {
+		if err := os.Symlink(copyName, filepath.Join(dir, name)); err != nil {
+			return fmt.Errorf("make the %s stand-in: %w", name, err)
+		}
+	}
 	return nil
 }
 
@@ -243,4 +541,11 @@ func openWindow(url string) error {
 	cmd := exec.CommandContext(ctx, "cmd.exe", "/c", "start", "msedge", "--app="+url)
 	cmd.Dir = "/mnt/c" // cmd.exe complains when started from a Linux path
 	return cmd.Run()
+}
+
+func count(n int, word string) string {
+	if n == 1 {
+		return "1 " + word
+	}
+	return fmt.Sprintf("%d %ss", n, word)
 }

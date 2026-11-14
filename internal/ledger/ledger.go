@@ -1,5 +1,6 @@
 // Package ledger turns the event log into the summary of which servers
-// were contacted and which identifiers each one received.
+// were contacted, which identifiers each one received, and what became of
+// each held action.
 package ledger
 
 import (
@@ -12,16 +13,32 @@ import (
 	"rehearsal/internal/events"
 )
 
+// Phase is where a session stands.
+type Phase string
+
+const (
+	PhaseRunning   Phase = "running"   // the agent is still working
+	PhaseReviewing Phase = "reviewing" // held actions are being described
+	PhaseDeciding  Phase = "deciding"  // waiting for the user
+	PhaseApplying  Phase = "applying"
+	PhaseFinished  Phase = "finished"
+)
+
 type Ledger struct {
 	Command   []string   `json:"command"`
 	WorkDir   string     `json:"work_dir"`
 	StartedAt time.Time  `json:"started_at"`
 	EndedAt   *time.Time `json:"ended_at"`
 	ExitCode  *int       `json:"exit_code"`
-	Totals    Totals     `json:"totals"`
+	Phase     Phase      `json:"phase"`
+	// whether actions are being held this session
+	Holding bool   `json:"holding"`
+	Totals  Totals `json:"totals"`
 	// every identifier we looked for, sent or not
 	Watching []events.Identifier `json:"watching"`
 	Servers  []Server            `json:"servers"`
+	// held actions, in the order they were held
+	Actions []Action `json:"actions"`
 }
 
 type Totals struct {
@@ -30,6 +47,7 @@ type Totals struct {
 	// distinct (server, identifier) pairs
 	IdentifiersSent int `json:"identifiers_sent"`
 	FlaggedServers  int `json:"flagged_servers"`
+	Held            int `json:"held"`
 }
 
 type Server struct {
@@ -49,11 +67,47 @@ type Received struct {
 	Where    []events.Where `json:"where"`
 }
 
+type Decision string
+
+const (
+	Undecided Decision = ""
+	Approved  Decision = "approved"
+	Refused   Decision = "refused"
+)
+
+type Outcome string
+
+const (
+	NoOutcome Outcome = ""
+	Applied   Outcome = "applied"
+	Failed    Outcome = "failed"
+	// approved, but an earlier action failed first
+	NotApplied Outcome = "not_applied"
+)
+
+type Action struct {
+	events.ActionHeld
+	Carries  []events.Identifier    `json:"carries"`
+	Review   *events.ActionReviewed `json:"review"`
+	Decision Decision               `json:"decision"`
+	Outcome  Outcome                `json:"outcome"`
+	// what the real program or server said, or why the action failed
+	Detail string `json:"detail"`
+}
+
 func Build(evs []events.Event) (Ledger, error) {
-	l := Ledger{Watching: []events.Identifier{}, Servers: []Server{}}
+	l := Ledger{Phase: PhaseRunning, Watching: []events.Identifier{}, Servers: []Server{}, Actions: []Action{}}
 	byID := map[string]events.Identifier{}
 	servers := map[string]*Server{}
 	seenIn := map[string]map[string]bool{} // host+identifier -> request IDs
+	actions := map[string]int{}            // action ID -> index in l.Actions
+	action := func(ev events.Event, id string) (*Action, error) {
+		i, ok := actions[id]
+		if !ok {
+			return nil, fmt.Errorf("event %d (%s) names an action that was never held: %q", ev.Seq, ev.Type, id)
+		}
+		return &l.Actions[i], nil
+	}
 
 	for _, ev := range evs {
 		switch ev.Type {
@@ -62,7 +116,7 @@ func Build(evs []events.Event) (Ledger, error) {
 			if err := decode(ev, &d); err != nil {
 				return l, err
 			}
-			l.Command, l.WorkDir, l.StartedAt, l.Watching = d.Command, d.WorkDir, ev.Time, d.Identifiers
+			l.Command, l.WorkDir, l.StartedAt, l.Watching, l.Holding = d.Command, d.WorkDir, ev.Time, d.Identifiers, d.Holding
 			for _, id := range d.Identifiers {
 				byID[id.ID] = id
 			}
@@ -107,6 +161,63 @@ func Build(evs []events.Event) (Ledger, error) {
 			}
 			t, code := ev.Time, d.ExitCode
 			l.EndedAt, l.ExitCode = &t, &code
+
+		case events.TypeActionHeld:
+			var d events.ActionHeld
+			if err := decode(ev, &d); err != nil {
+				return l, err
+			}
+			a := Action{ActionHeld: d, Carries: []events.Identifier{}}
+			for _, id := range d.IdentifierIDs {
+				if known, ok := byID[id]; ok {
+					a.Carries = append(a.Carries, known)
+				}
+			}
+			actions[d.ID] = len(l.Actions)
+			l.Actions = append(l.Actions, a)
+		case events.TypeActionReviewed:
+			var d events.ActionReviewed
+			if err := decode(ev, &d); err != nil {
+				return l, err
+			}
+			a, err := action(ev, d.ActionID)
+			if err != nil {
+				return l, err
+			}
+			a.Review = &d
+		case events.TypeActionApproved, events.TypeActionRefused:
+			var d events.ActionApproved // both carry only the action's ID
+			if err := decode(ev, &d); err != nil {
+				return l, err
+			}
+			a, err := action(ev, d.ActionID)
+			if err != nil {
+				return l, err
+			}
+			a.Decision = Approved
+			if ev.Type == events.TypeActionRefused {
+				a.Decision = Refused
+			}
+		case events.TypeActionApplied:
+			var d events.ActionApplied
+			if err := decode(ev, &d); err != nil {
+				return l, err
+			}
+			a, err := action(ev, d.ActionID)
+			if err != nil {
+				return l, err
+			}
+			a.Outcome, a.Detail = Applied, d.Detail
+		case events.TypeActionFailed:
+			var d events.ActionFailed
+			if err := decode(ev, &d); err != nil {
+				return l, err
+			}
+			a, err := action(ev, d.ActionID)
+			if err != nil {
+				return l, err
+			}
+			a.Outcome, a.Detail = Failed, strings.TrimSpace(d.Reason+"\n"+d.Detail)
 		}
 	}
 
@@ -129,7 +240,42 @@ func Build(evs []events.Event) (Ledger, error) {
 		}
 		return a.Host < b.Host
 	})
+
+	l.Totals.Held = len(l.Actions)
+	l.Phase = phase(l)
+	if l.Phase == PhaseFinished {
+		for i := range l.Actions {
+			if a := &l.Actions[i]; a.Decision == Approved && a.Outcome == NoOutcome {
+				a.Outcome = NotApplied
+			}
+		}
+	}
 	return l, nil
+}
+
+// phase works out where the session stands. Applying stops at the first
+// failure, so one failed action means it is over.
+func phase(l Ledger) Phase {
+	if l.EndedAt == nil {
+		return PhaseRunning
+	}
+	waiting, failed := false, false
+	for _, a := range l.Actions {
+		switch {
+		case a.Review == nil:
+			return PhaseReviewing
+		case a.Decision == Undecided:
+			return PhaseDeciding
+		case a.Outcome == Failed:
+			failed = true
+		case a.Decision == Approved && a.Outcome == NoOutcome:
+			waiting = true
+		}
+	}
+	if waiting && !failed {
+		return PhaseApplying
+	}
+	return PhaseFinished
 }
 
 func decode(ev events.Event, into any) error {
@@ -198,6 +344,53 @@ func (l Ledger) Text() string {
 	if l.Totals.FlaggedServers > 0 {
 		fmt.Fprintf(&b, "\n! %s outside the model provider received your details.\n", plural(l.Totals.FlaggedServers, "server"))
 	}
+	if len(l.Actions) > 0 {
+		b.WriteString(l.actionsText())
+	}
+	return b.String()
+}
+
+func (l Ledger) actionsText() string {
+	var b strings.Builder
+	counts := map[string]int{}
+	b.WriteString("\nHELD ACTIONS\n")
+	for _, a := range l.Actions {
+		state := "waiting"
+		switch {
+		case a.Outcome == Applied:
+			state = "applied"
+		case a.Outcome == Failed:
+			state = "FAILED"
+		case a.Outcome == NotApplied:
+			state = "not applied"
+		case a.Decision == Refused:
+			state = "refused"
+		}
+		counts[state]++
+		exact := strings.Join(a.Command, " ")
+		if a.Kind == events.ActionHTTP {
+			exact = fmt.Sprintf("%s %s%s", a.Method, a.Host, a.Path)
+		}
+		// the explanation never appears without the exact text beside it
+		if a.Review != nil {
+			fmt.Fprintf(&b, "   %-12s %s\n                %s\n", state, a.Review.Summary, exact)
+		} else {
+			fmt.Fprintf(&b, "   %-12s %s\n", state, exact)
+		}
+		if a.Outcome == Failed {
+			for _, line := range strings.Split(a.Detail, "\n") {
+				fmt.Fprintf(&b, "                %s\n", line)
+			}
+		}
+	}
+	fmt.Fprintf(&b, "\n%s held: %d applied, %d refused, %d failed", plural(len(l.Actions), "action"), counts["applied"], counts["refused"], counts["FAILED"])
+	if n := counts["not applied"]; n > 0 {
+		fmt.Fprintf(&b, ", %d not applied because an earlier one failed", n)
+	}
+	if n := counts["waiting"]; n > 0 {
+		fmt.Fprintf(&b, ", %d undecided", n)
+	}
+	b.WriteString("\n")
 	return b.String()
 }
 
