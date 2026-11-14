@@ -12,6 +12,9 @@ CANARY.txt
 *.db-wal
 *.log
 
+# Working notes
+.notes/
+
 # Builds
 /rehearse
 node_modules/

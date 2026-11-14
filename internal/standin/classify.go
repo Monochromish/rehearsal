@@ -22,6 +22,8 @@ type Plan struct {
 	Force           bool
 	Deletes         bool
 	Publishes       bool
+	ChangesAccess   bool
+	Minor           bool
 	NeedsRealAnswer bool
 
 	// git only
@@ -177,35 +179,41 @@ func classifyNpm(args []string) Plan {
 
 type ghRule struct {
 	needsAnswer bool
-	deletes     bool
-	publishes   bool
+	// deletes a repository or a release
+	deletes bool
+	// opens or comments on an issue or pull request, or adds a label
+	minor bool
 }
 
 // gh commands that create or change something. A command in neither table
 // is handed to the real gh as it is, and the proxy still holds any write
 // it makes.
 var ghWrites = map[string]ghRule{
-	"pr create": {needsAnswer: true}, "pr merge": {}, "pr close": {}, "pr reopen": {}, "pr edit": {},
-	"pr comment": {}, "pr review": {}, "pr ready": {}, "pr lock": {}, "pr unlock": {}, "pr update-branch": {},
+	"pr create": {needsAnswer: true, minor: true}, "pr merge": {}, "pr close": {}, "pr reopen": {}, "pr edit": {},
+	"pr comment": {minor: true}, "pr review": {}, "pr ready": {}, "pr lock": {}, "pr unlock": {}, "pr update-branch": {},
 	"pr revert": {needsAnswer: true},
 
-	"issue create": {needsAnswer: true}, "issue close": {}, "issue reopen": {}, "issue edit": {},
-	"issue comment": {}, "issue delete": {deletes: true}, "issue lock": {}, "issue unlock": {}, "issue pin": {},
+	"issue create": {needsAnswer: true, minor: true}, "issue close": {}, "issue reopen": {}, "issue edit": {},
+	"issue comment": {minor: true}, "issue delete": {}, "issue lock": {}, "issue unlock": {}, "issue pin": {},
 	"issue unpin": {}, "issue transfer": {}, "issue develop": {},
 
-	"release create": {publishes: true}, "release delete": {deletes: true}, "release edit": {},
-	"release upload": {}, "release delete-asset": {deletes: true},
+	"release create": {}, "release delete": {deletes: true}, "release edit": {},
+	"release upload": {}, "release delete-asset": {},
 
 	"repo create": {}, "repo delete": {deletes: true}, "repo edit": {}, "repo rename": {}, "repo archive": {},
 	"repo unarchive": {}, "repo fork": {}, "repo sync": {},
 
-	"gist create": {needsAnswer: true}, "gist edit": {}, "gist delete": {deletes: true}, "gist rename": {},
+	"gist create": {needsAnswer: true}, "gist edit": {}, "gist delete": {}, "gist rename": {},
 
 	"workflow run": {}, "workflow enable": {}, "workflow disable": {},
-	"run rerun": {}, "run cancel": {}, "run delete": {deletes: true},
-	"secret set": {}, "secret delete": {deletes: true}, "variable set": {}, "variable delete": {deletes: true},
-	"label create": {}, "label edit": {}, "label delete": {deletes: true}, "label clone": {},
+	"run rerun": {}, "run cancel": {}, "run delete": {},
+	"secret set": {}, "secret delete": {}, "variable set": {}, "variable delete": {},
+	"label create": {minor: true}, "label edit": {}, "label delete": {}, "label clone": {},
 }
+
+// The parts of GitHub's API that decide who can see or change a
+// repository: collaborators, branch protection and rule sets.
+var accessPaths = []string{"/collaborators", "/protection", "/rulesets"}
 
 var ghReads = []string{
 	"pr list", "pr view", "pr status", "pr diff", "pr checks",
@@ -242,15 +250,43 @@ func classifyGh(args []string) Plan {
 	}
 	command := strings.Join(words, " ")
 	if rule, ok := ghWrites[command]; ok {
-		if command == "release create" && slices.Contains(rest, "--draft") {
-			rule.publishes = false
+		p := Plan{Hold: true, Kind: events.ActionGh, Deletes: rule.deletes, Minor: rule.minor, NeedsRealAnswer: rule.needsAnswer}
+		switch command {
+		case "repo edit":
+			p.ChangesAccess = hasOption(rest, "--visibility")
+		case "repo create":
+			p.ChangesAccess = slices.Contains(rest, "--public")
+		case "pr edit", "issue edit":
+			p.Minor = onlyAddsLabels(rest)
 		}
-		return Plan{
-			Hold: true, Kind: events.ActionGh,
-			Deletes: rule.deletes, Publishes: rule.publishes, NeedsRealAnswer: rule.needsAnswer,
-		}
+		return p
 	}
 	return Plan{ReadOnly: slices.Contains(ghReads, command)}
+}
+
+func hasOption(args []string, name string) bool {
+	return slices.ContainsFunc(args, func(a string) bool { return a == name || strings.HasPrefix(a, name+"=") })
+}
+
+// onlyAddsLabels reports whether an edit does nothing but add labels:
+// every option is --add-label.
+func onlyAddsLabels(args []string) bool {
+	adds := false
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--add-label":
+			adds = true
+			i++
+		case strings.HasPrefix(a, "--add-label="):
+			adds = true
+		case a == "-R" || a == "--repo":
+			i++
+		case strings.HasPrefix(a, "-"):
+			return false
+		}
+	}
+	return adds
 }
 
 // classifyGhAPI holds "gh api" calls that write. GraphQL always uses POST,
@@ -294,7 +330,12 @@ func classifyGhAPI(args []string) Plan {
 			method = "POST"
 		}
 	}
-	held := Plan{Hold: true, Kind: events.ActionGh, Deletes: method == "DELETE"}
+	held := Plan{
+		Hold: true, Kind: events.ActionGh, Deletes: method == "DELETE",
+		ChangesAccess: slices.ContainsFunc(args, func(a string) bool {
+			return slices.ContainsFunc(accessPaths, func(p string) bool { return strings.Contains(a, p) })
+		}),
+	}
 	switch {
 	case method == "GET" || method == "HEAD":
 		return Plan{ReadOnly: true}

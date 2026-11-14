@@ -38,6 +38,8 @@ type Command struct {
 	Force           bool              `json:"force,omitempty"`
 	Deletes         bool              `json:"deletes,omitempty"`
 	Publishes       bool              `json:"publishes,omitempty"`
+	ChangesAccess   bool              `json:"changes_access,omitempty"`
+	Minor           bool              `json:"minor,omitempty"`
 	NeedsRealAnswer bool              `json:"needs_real_answer,omitempty"`
 }
 
@@ -88,6 +90,8 @@ func (h *Holder) HoldCommand(c Command, m Masker) (string, error) {
 		Force:           c.Force,
 		Deletes:         c.Deletes,
 		Publishes:       c.Publishes,
+		ChangesAccess:   c.ChangesAccess,
+		Minor:           c.Minor,
 		NeedsRealAnswer: c.NeedsRealAnswer,
 	}
 	return h.Hold(display, Payload{

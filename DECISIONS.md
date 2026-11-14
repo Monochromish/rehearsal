@@ -198,12 +198,30 @@ and redirects are not followed. Only a 2xx answer counts as applied.
 
 ## The reviewer
 
-The model is reached through the OpenAI-compatible endpoint, as the plan
-said. The settings found to work through Ollama's own `/api/chat` are sent
-in their OpenAI form: `reasoning_effort: "none"` for `think: false`, a JSON
-schema in `response_format`, temperature 0 and `max_tokens: 200`. Checked
-against `qwen3.8:27b` on this laptop: valid JSON every time, no thinking
-phase, about 3 to 5 seconds a call and 16 for the first after a load.
+The model is reached through the OpenAI-compatible endpoint, so that other
+local servers work as well as Ollama. The settings found to work through
+Ollama's own `/api/chat` are sent in their OpenAI form:
+`reasoning_effort: "none"` for `think: false`, a JSON schema in
+`response_format`, temperature 0 and `max_tokens: 200`.
+
+Whether those two settings really take effect through the compatible
+endpoint was checked against `qwen3.8:27b` on Ollama, and the checks are kept
+as tests (`TestLive...` in `internal/review`, run only when
+`REHEARSAL_LIVE_MODEL_URL` is set):
+
+- Thinking is off. Our request came back in 3.2 seconds with 65 output
+  tokens and no reasoning text. The same request with thinking left on took
+  13.3 seconds, with 384 tokens and 1,373 characters of reasoning.
+- The schema is enforced by the server. A request whose instructions asked
+  for a different shape and a risk word outside the three allowed still came
+  back with exactly `summary`, `risk` and `concern`, and `risk` set to
+  `high`.
+
+So there is no Ollama-specific path. Had thinking stayed on, the plan was to
+detect Ollama and use its native endpoint for it.
+
+The first call after the model loads takes much longer, 16 seconds when
+measured.
 
 A warm-up request goes out in the background at start-up so that the slow
 first call happens while the agent works. Its failure is ignored on purpose.
@@ -225,13 +243,51 @@ The reviewer address must resolve to this machine or a private network
 address. An address the user typed that doesn't is an error at start-up. If
 no address was given and none can be worked out, the rules are used.
 
-## Risk floors
+## Risk ratings
 
-The floor is high for: a force push, anything that deletes on the far side,
-a publish, anything carrying a watched identifier, and a push of files whose
-names look like secrets. Three of these are wider than the plan's wording:
-deleting a remote branch and sending a `DELETE` request count as deletions,
-and `gh release create` without `--draft` counts as a publish.
+Every held action has a rating from the rules, and that rating is also its
+minimum: the model may rate an action higher, never lower. Without a model
+the rules' rating is used as it is.
+
+High:
+
+- a force push or a mirror push
+- deleting a branch or tag on the remote
+- any publish
+- deleting a repository or a release
+- changing a repository's visibility, collaborators or branch protection
+- any `DELETE` request
+- anything carrying one of your details or a planted value
+- a push whose commits add or change secret-looking files
+
+Low:
+
+- a push of new branches only, none of them the remote's default branch
+- opening or commenting on an issue or pull request
+- adding labels
+
+Everything else is medium. That includes a push to the default branch,
+creating a release, and every other write request. The plan singled out
+writes "to a host not contacted earlier in the session" as medium; since
+anything unlisted is medium too, a write to a host seen before comes out the
+same, and the distinction is not computed.
+
+How the facts behind these are found:
+
+- The remote's default branch is the one `refs/remotes/<remote>/HEAD` names.
+  A remote that was added and never fetched has none, and then `main` and
+  `master` are both treated as the default.
+- A branch is new when there is no remote-tracking branch for it. Nothing is
+  asked of the remote.
+- Visibility is `gh repo edit --visibility` and `gh repo create --public`.
+  Collaborators and branch protection have no `gh` command of their own, so
+  they are recognised by path (`/collaborators`, `/protection`, `/rulesets`)
+  in `gh api` calls and in held requests.
+- "Adding labels" is `gh label create`, and `gh issue edit` or `gh pr edit`
+  whose only options are `--add-label`.
+- Deleting something other than a repository or a release through `gh`
+  (an issue, a gist, a secret) is medium. A `gh api -X DELETE` is high, as
+  any `DELETE` request is.
 
 Secret-looking names are `.env` and `.env.*`, the usual private key names
 (`id_rsa`, `id_ed25519` and so on, not their `.pub` halves), key and
@@ -243,15 +299,9 @@ The file list comes from the commits that no remote-tracking branch has yet,
 up to 500 commits back. The floor uses the whole list; the page shows the
 first 100 names and 30 commit messages.
 
-The model may rate an action above its floor, never below. It can still take
-a medium action down to low. That only moves it into the collapsed "Routine"
-list, where it stays ticked as it would have been, but it is a way for text
-the agent wrote to make an action less visible. Making the rules' own rating
-the floor for everything would close it, at the cost of the model never
-being able to call anything routine.
-
-Without a model, the rules rate a write to this machine low, any other write
-or push medium, and anything with a floor high.
+An earlier version let the model take a medium action down to low, which
+moved it into the collapsed "Routine" list. That gave text the agent wrote a
+way to make an action less visible, so it was removed.
 
 ## Deciding and applying
 

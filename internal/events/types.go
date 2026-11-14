@@ -169,6 +169,13 @@ type ActionHeld struct {
 	// removes something on the far side: a repository, release, branch or tag
 	Deletes   bool `json:"deletes,omitempty"`
 	Publishes bool `json:"publishes,omitempty"`
+	// changes who can see or change a repository: its visibility, its
+	// collaborators or its branch protection
+	ChangesAccess bool `json:"changes_access,omitempty"`
+	// one of the few kinds of action that may be rated low: a push of a new
+	// branch that is not the default one, opening or commenting on an issue
+	// or pull request, adding labels
+	Minor bool `json:"minor,omitempty"`
 	// the agent may have needed the real result to carry on correctly
 	NeedsRealAnswer bool `json:"needs_real_answer,omitempty"`
 }

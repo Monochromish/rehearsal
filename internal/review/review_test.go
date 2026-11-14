@@ -20,16 +20,33 @@ func TestFloor(t *testing.T) {
 		a    events.ActionHeld
 		want events.Risk
 	}{
-		{"ordinary push", events.ActionHeld{Kind: events.ActionGitPush}, events.RiskLow},
+		// high
 		{"force push", events.ActionHeld{Kind: events.ActionGitPush, Force: true}, events.RiskHigh},
-		{"deleting a repository", events.ActionHeld{Kind: events.ActionGh, Deletes: true}, events.RiskHigh},
-		{"deleting a release", events.ActionHeld{Kind: events.ActionGh, Subject: "release delete", Deletes: true}, events.RiskHigh},
+		{"force push of a new branch", events.ActionHeld{Kind: events.ActionGitPush, Force: true, Minor: true}, events.RiskHigh},
+		{"deleting a branch or tag on the remote", events.ActionHeld{Kind: events.ActionGitPush, Deletes: true}, events.RiskHigh},
 		{"npm publish", events.ActionHeld{Kind: events.ActionNpmPublish, Publishes: true}, events.RiskHigh},
-		{"publishing a release", events.ActionHeld{Kind: events.ActionGh, Publishes: true}, events.RiskHigh},
+		{"deleting a repository", events.ActionHeld{Kind: events.ActionGh, Subject: "repo delete", Deletes: true}, events.RiskHigh},
+		{"deleting a release", events.ActionHeld{Kind: events.ActionGh, Subject: "release delete", Deletes: true}, events.RiskHigh},
+		{"changing visibility, collaborators or branch protection", events.ActionHeld{Kind: events.ActionGh, ChangesAccess: true}, events.RiskHigh},
+		{"a DELETE request", events.ActionHeld{Kind: events.ActionHTTP, Method: "DELETE", Deletes: true}, events.RiskHigh},
 		{"request carrying a canary", events.ActionHeld{Kind: events.ActionHTTP, IdentifierIDs: []string{"canary-word"}}, events.RiskHigh},
 		{"request carrying a real identifier", events.ActionHeld{Kind: events.ActionHTTP, IdentifierIDs: []string{"git-email"}}, events.RiskHigh},
-		{"request carrying nothing", events.ActionHeld{Kind: events.ActionHTTP, IdentifierIDs: []string{}}, events.RiskLow},
-		{"opening a pull request", events.ActionHeld{Kind: events.ActionGh, NeedsRealAnswer: true}, events.RiskLow},
+		{"comment carrying an identifier", events.ActionHeld{Kind: events.ActionGh, Minor: true, IdentifierIDs: []string{"git-email"}}, events.RiskHigh},
+		{"push adding a secret-looking file", events.ActionHeld{Kind: events.ActionGitPush, Minor: true, SecretFiles: []string{".env"}}, events.RiskHigh},
+
+		// medium
+		{"push to the default branch", events.ActionHeld{Kind: events.ActionGitPush, Subject: "main"}, events.RiskMedium},
+		{"write request carrying nothing", events.ActionHeld{Kind: events.ActionHTTP, Method: "POST", Host: "tracker.test", IdentifierIDs: []string{}}, events.RiskMedium},
+		{"write request to this machine", events.ActionHeld{Kind: events.ActionHTTP, Method: "POST", Host: "localhost:8099"}, events.RiskMedium},
+		{"creating a release", events.ActionHeld{Kind: events.ActionGh, Subject: "release create"}, events.RiskMedium},
+		{"anything not listed", events.ActionHeld{Kind: events.ActionGh, Subject: "workflow run"}, events.RiskMedium},
+		{"no facts at all", events.ActionHeld{}, events.RiskMedium},
+
+		// low
+		{"push of a new non-default branch", events.ActionHeld{Kind: events.ActionGitPush, Minor: true}, events.RiskLow},
+		{"opening a pull request", events.ActionHeld{Kind: events.ActionGh, Subject: "pr create", Minor: true, NeedsRealAnswer: true}, events.RiskLow},
+		{"commenting on an issue", events.ActionHeld{Kind: events.ActionGh, Subject: "issue comment", Minor: true}, events.RiskLow},
+		{"adding a label", events.ActionHeld{Kind: events.ActionGh, Subject: "label create", Minor: true}, events.RiskLow},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -66,25 +83,48 @@ func TestByRulesNeverGoesBelowTheFloor(t *testing.T) {
 	}
 }
 
-func TestByRulesRisk(t *testing.T) {
-	tests := []struct {
+// The model's rating is used only when it is above the rules' minimum.
+func TestModelCanRaiseARatingButNeverLowerIt(t *testing.T) {
+	reply := func(risk events.Risk) string {
+		return `{"summary":"Does a thing.","risk":"` + string(risk) + `","concern":"It may break."}`
+	}
+	actions := []struct {
 		name string
 		a    events.ActionHeld
-		want events.Risk
 	}{
-		{"ordinary push needs a look", events.ActionHeld{Kind: events.ActionGitPush}, events.RiskMedium},
-		{"gh change needs a look", events.ActionHeld{Kind: events.ActionGh, Subject: "pr comment"}, events.RiskMedium},
-		{"write to another server needs a look", events.ActionHeld{Kind: events.ActionHTTP, Host: "tracker.test"}, events.RiskMedium},
-		{"write to this machine is routine", events.ActionHeld{Kind: events.ActionHTTP, Host: "localhost:8099"}, events.RiskLow},
-		{"write to 127.0.0.1 is routine", events.ActionHeld{Kind: events.ActionHTTP, Host: "127.0.0.1:3000"}, events.RiskLow},
-		{"write to this machine with a canary is not", events.ActionHeld{Kind: events.ActionHTTP, Host: "localhost:8099", IdentifierIDs: []string{"canary-word"}}, events.RiskHigh},
+		{"minimum low", events.ActionHeld{Kind: events.ActionGh, Subject: "pr comment", Minor: true}},
+		{"minimum medium", events.ActionHeld{Kind: events.ActionGitPush, Subject: "main"}},
+		{"minimum high", events.ActionHeld{Kind: events.ActionGitPush, Force: true}},
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := ByRules(tt.a).Risk; got != tt.want {
-				t.Errorf("risk = %q, want %q", got, tt.want)
-			}
-		})
+	for _, act := range actions {
+		for _, said := range []events.Risk{events.RiskLow, events.RiskMedium, events.RiskHigh} {
+			t.Run(act.name+", model says "+string(said), func(t *testing.T) {
+				fake := newFakeModel(t, reply(said))
+				v := newModel(t, fake.URL, 5*time.Second).Review(context.Background(), act.a, nil, "")
+				want := Floor(act.a)
+				if rank(said) > rank(want) {
+					want = said
+				}
+				if v.Source != events.ReviewByModel || v.Risk != want {
+					t.Errorf("rating = %q from %q, want %q from the model (minimum %q, model said %q)", v.Risk, v.Source, want, Floor(act.a), said)
+				}
+			})
+		}
+	}
+}
+
+func TestByRulesRatesAtTheMinimum(t *testing.T) {
+	for _, a := range []events.ActionHeld{
+		{Kind: events.ActionGitPush},
+		{Kind: events.ActionGitPush, Minor: true},
+		{Kind: events.ActionGitPush, Force: true},
+		{Kind: events.ActionHTTP, Host: "localhost:8099"},
+		{Kind: events.ActionHTTP, Host: "localhost:8099", IdentifierIDs: []string{"canary-word"}},
+		{Kind: events.ActionGh, ChangesAccess: true},
+	} {
+		if got, want := ByRules(a).Risk, Floor(a); got != want {
+			t.Errorf("ByRules(%+v).Risk = %q, want the minimum %q", a, got, want)
+		}
 	}
 }
 
@@ -198,10 +238,10 @@ func TestModelReview(t *testing.T) {
 		wantCalls  int32
 		wantNote   string
 	}{
-		{"a good answer is used", push, []string{lowReply}, events.ReviewByModel, events.RiskLow, 1, ""},
+		{"a good answer is used, at no less than the minimum", push, []string{lowReply}, events.ReviewByModel, events.RiskMedium, 1, ""},
 		{"the model may raise the risk", push, []string{highReply}, events.ReviewByModel, events.RiskHigh, 1, ""},
 		{"the model cannot lower a force push", forcePush, []string{lowReply}, events.ReviewByModel, events.RiskHigh, 1, ""},
-		{"a bad answer is retried once", push, []string{"not json", lowReply}, events.ReviewByModel, events.RiskLow, 2, ""},
+		{"a bad answer is retried once", push, []string{"not json", highReply}, events.ReviewByModel, events.RiskHigh, 2, ""},
 		{"two bad answers fall back to the rules", push, []string{"not json", `{"risk":"low"}`, lowReply}, events.ReviewByRules, events.RiskMedium, 2, "could not be used"},
 		{"the fallback keeps the floor too", forcePush, []string{"nope", "nope"}, events.ReviewByRules, events.RiskHigh, 2, "could not be used"},
 		{"a server error falls back at once", push, []string{"HTTP 500"}, events.ReviewByRules, events.RiskMedium, 1, "did not answer"},

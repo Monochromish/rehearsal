@@ -17,8 +17,10 @@ type pushFactSheet struct {
 	// files the pushed commits add or change, and those commits' first lines
 	files   []string
 	commits []string
-	stdout  string
-	stderr  string
+	// pushes only new branches, none of them the remote's default branch
+	minor  bool
+	stdout string
+	stderr string
 }
 
 // The most commits looked through for file names and messages. A first
@@ -124,24 +126,39 @@ func pushFacts(g gitRunner, spec pushSpec) (pushFactSheet, error) {
 		listed("refs/tags")
 	}
 
+	// The remote's default branch, as far as this repository knows. A
+	// remote that was added but never fetched has none recorded, and then
+	// the two usual names are taken to be it.
+	defaults := []string{"main", "master"}
+	if head, ok := g.out("symbolic-ref", "-q", "--short", "refs/remotes/"+remote+"/HEAD"); ok && head != "" {
+		defaults = []string{strings.TrimPrefix(head, remote+"/")}
+	}
+
 	var lines, names []string
 	tracked := ""
+	// minor until shown otherwise: only new branches, none of them the default
+	facts.minor = len(updates) > 0 && !spec.all && !spec.mirror && !spec.tags
 	for _, u := range updates {
 		if u.full == "" {
 			lines = append(lines, fmt.Sprintf(" - [deleted]         %s", u.dst))
 			names = append(names, u.dst+" (delete)")
+			facts.minor = false
 			continue
 		}
 		facts.refs = append(facts.refs, events.RefState{Ref: u.full, Commit: u.commit})
 		names = append(names, u.dst)
 		if u.tag {
 			lines = append(lines, fmt.Sprintf(" * [new tag]         %s -> %s", u.src, u.dst))
+			facts.minor = false
 			continue
 		}
 		if tracked == "" {
 			tracked = u.dst
 		}
 		old, _ := g.out("rev-parse", "--verify", "-q", "refs/remotes/"+remote+"/"+u.dst)
+		if old != "" || slices.Contains(defaults, u.dst) {
+			facts.minor = false
+		}
 		files, subjects := g.pushed(old, u.commit)
 		for _, f := range files {
 			if !slices.Contains(facts.files, f) {

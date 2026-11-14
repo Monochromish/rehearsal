@@ -11,6 +11,7 @@ func TestClassify(t *testing.T) {
 	type want struct {
 		hold, readOnly                    bool
 		force, deletes, publishes, answer bool
+		access, minor                     bool
 	}
 	held := want{hold: true}
 	passed := want{}
@@ -62,16 +63,32 @@ func TestClassify(t *testing.T) {
 		{"npm", passed},
 
 		// gh: commands that create or change something are held
-		{"gh pr create --title x --body y", want{hold: true, answer: true}},
+		{"gh pr create --title x --body y", want{hold: true, answer: true, minor: true}},
 		{"gh pr merge 12 --squash", held},
-		{"gh pr comment 12 --body hi", held},
-		{"gh -R ada/repo issue create --title t", want{hold: true, answer: true}},
+		{"gh pr comment 12 --body hi", want{hold: true, minor: true}},
+		{"gh -R ada/repo issue create --title t", want{hold: true, answer: true, minor: true}},
+		{"gh issue comment 3 --body thanks", want{hold: true, minor: true}},
 		{"gh issue close 3", held},
-		{"gh release create v1.0.0", want{hold: true, publishes: true}},
+		{"gh issue delete 3", held},
+		{"gh issue edit 3 --add-label bug", want{hold: true, minor: true}},
+		{"gh pr edit 12 --add-label=bug --add-label ui", want{hold: true, minor: true}},
+		{"gh pr edit 12 --add-label bug --title New", held},
+		{"gh issue edit 3 --body rewritten", held},
+		{"gh label create bug", want{hold: true, minor: true}},
+		{"gh label delete bug", held},
+		{"gh release create v1.0.0", held},
 		{"gh release create v1.0.0 --draft", held},
 		{"gh release delete v1.0.0", want{hold: true, deletes: true}},
 		{"gh repo delete ada/repo --yes", want{hold: true, deletes: true}},
-		{"gh repo create ada/new --public", held},
+		{"gh repo create ada/new --public", want{hold: true, access: true}},
+		{"gh repo create ada/new --private", held},
+		{"gh repo edit ada/repo --visibility public", want{hold: true, access: true}},
+		{"gh repo edit ada/repo --visibility=private", want{hold: true, access: true}},
+		{"gh repo edit ada/repo --description New", held},
+		{"gh api -X PUT /repos/ada/repo/collaborators/eve", want{hold: true, access: true}},
+		{"gh api -X PUT /repos/ada/repo/branches/main/protection --input rules.json", want{hold: true, access: true}},
+		{"gh api -X DELETE /repos/ada/repo/branches/main/protection", want{hold: true, deletes: true, access: true}},
+		{"gh api /repos/ada/repo/collaborators", readOnly},
 		{"gh gist create notes.txt", want{hold: true, answer: true}},
 		{"gh secret set TOKEN", held},
 		{"gh workflow run ci.yml", held},
@@ -106,7 +123,7 @@ func TestClassify(t *testing.T) {
 		t.Run(tt.line, func(t *testing.T) {
 			fields := strings.Fields(tt.line)
 			p := Classify(fields[0], fields[1:])
-			got := want{p.Hold, p.ReadOnly, p.Force, p.Deletes, p.Publishes, p.NeedsRealAnswer}
+			got := want{p.Hold, p.ReadOnly, p.Force, p.Deletes, p.Publishes, p.NeedsRealAnswer, p.ChangesAccess, p.Minor}
 			if got != tt.want {
 				t.Errorf("Classify(%q)\n got %+v\nwant %+v", tt.line, got, tt.want)
 			}

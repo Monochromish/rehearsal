@@ -52,7 +52,8 @@ func Main(name string, args []string) int {
 	}
 	c := hold.Command{
 		Kind: plan.Kind, Program: name, Args: args, WorkDir: workDir,
-		Force: plan.Force, Deletes: plan.Deletes, Publishes: plan.Publishes, NeedsRealAnswer: plan.NeedsRealAnswer,
+		Force: plan.Force, Deletes: plan.Deletes, Publishes: plan.Publishes,
+		ChangesAccess: plan.ChangesAccess, Minor: plan.Minor, NeedsRealAnswer: plan.NeedsRealAnswer,
 	}
 	var stdout, stderr string
 	switch name {
@@ -65,7 +66,7 @@ func Main(name string, args []string) int {
 			return 1
 		}
 		c.GitGlobals, c.Destination, c.Subject, c.Refs = plan.Globals, facts.destination, facts.subject, facts.refs
-		c.Files, c.Commits = facts.files, facts.commits
+		c.Files, c.Commits, c.Minor = facts.files, facts.commits, facts.minor
 		stdout, stderr = facts.stdout, facts.stderr
 	case "npm":
 		c.Destination, c.Subject = npmFacts(real, args, workDir)

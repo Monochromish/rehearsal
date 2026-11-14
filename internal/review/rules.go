@@ -33,13 +33,20 @@ func rank(r events.Risk) int {
 	return 0
 }
 
-// Floor is the lowest risk an action can be given. The model may rate an
-// action higher than this, never lower.
+// Floor is the rules' own rating of an action, and the lowest it can be
+// given. The model may rate an action higher than this, never lower.
+//
+// High: anything that overwrites, deletes or publishes, changes who has
+// access, carries one of the user's details, or pushes files that look
+// like secrets. Low: the few kinds marked Minor. Everything else is medium.
 func Floor(a events.ActionHeld) events.Risk {
-	if a.Force || a.Deletes || a.Publishes || len(a.IdentifierIDs) > 0 || len(a.SecretFiles) > 0 {
+	switch {
+	case a.Force, a.Deletes, a.Publishes, a.ChangesAccess, len(a.IdentifierIDs) > 0, len(a.SecretFiles) > 0:
 		return events.RiskHigh
+	case a.Minor:
+		return events.RiskLow
 	}
-	return events.RiskLow
+	return events.RiskMedium
 }
 
 var (
@@ -69,9 +76,9 @@ func SecretLooking(paths []string) []string {
 	return found
 }
 
-// ByRules describes an action without a model.
+// ByRules describes an action without a model. Its risk is the floor.
 func ByRules(a events.ActionHeld) Verdict {
-	v := Verdict{Risk: events.RiskMedium, Source: events.ReviewByRules}
+	v := Verdict{Risk: Floor(a), Source: events.ReviewByRules}
 	dest := a.Destination
 	if dest == "" {
 		dest = "another server"
@@ -118,18 +125,17 @@ func ByRules(a events.ActionHeld) Verdict {
 		}
 		v.Concern = "The server will act on this request, and that may not be possible to undo."
 		if isThisMachine(a.Host) {
-			v.Risk = events.RiskLow
-			v.Concern = "It goes to a program on this computer, not out to the internet."
+			v.Concern = "It goes to a program on this computer, not out to the internet, but that program will still act on it."
 		}
+	}
+	if a.ChangesAccess {
+		v.Concern = "It changes who can see or change the repository, or removes a safeguard on it."
 	}
 	if len(a.IdentifierIDs) > 0 {
 		v.Concern = "It carries details of yours to a server that is not the AI service the agent is meant to talk to."
 	}
 	if len(a.SecretFiles) > 0 {
 		v.Concern = fmt.Sprintf("It includes files that look like passwords or keys (%s), which would then be readable by everyone with access to that copy.", strings.Join(a.SecretFiles, ", "))
-	}
-	if rank(Floor(a)) > rank(v.Risk) {
-		v.Risk = Floor(a)
 	}
 	return v
 }

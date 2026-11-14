@@ -170,6 +170,7 @@ func (r *Recorder) hold(f *mitm.Flow, seen []events.IdentifierSeen) {
 		Destination:     host,
 		IdentifierIDs:   ids,
 		Deletes:         req.Method == http.MethodDelete,
+		ChangesAccess:   changesAccess(req.URL.Path),
 		NeedsRealAnswer: answer.NeedsRealAnswer,
 	}, hold.Payload{
 		Method: req.Method,
@@ -187,6 +188,18 @@ func (r *Recorder) hold(f *mitm.Flow, seen []events.IdentifierSeen) {
 		header.Set("Content-Type", answer.ContentType)
 	}
 	f.Response = &mitm.Response{StatusCode: answer.Status, Header: header, Body: answer.Body}
+}
+
+// changesAccess reports whether a write to this path changes who can see
+// or change a repository. The paths are those of the GitHub REST API for
+// collaborators, branch protection and rule sets.
+func changesAccess(path string) bool {
+	for _, part := range []string{"/collaborators", "/protection", "/rulesets"} {
+		if strings.Contains(path, part) {
+			return true
+		}
+	}
+	return false
 }
 
 // scan finds the watched identifiers in the request's address, headers

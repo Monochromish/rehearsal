@@ -63,11 +63,12 @@ func TestSecretLooking(t *testing.T) {
 }
 
 func TestPushOfSecretLookingFilesIsAtLeastHigh(t *testing.T) {
-	plain := events.ActionHeld{Kind: events.ActionGitPush, Files: []string{"README.md"}}
-	withSecret := events.ActionHeld{Kind: events.ActionGitPush, Files: []string{"README.md", ".env"}, SecretFiles: []string{".env"}}
+	// a new non-default branch: low on its own
+	plain := events.ActionHeld{Kind: events.ActionGitPush, Minor: true, Files: []string{"README.md"}}
+	withSecret := events.ActionHeld{Kind: events.ActionGitPush, Minor: true, Files: []string{"README.md", ".env"}, SecretFiles: []string{".env"}}
 
 	if got := Floor(plain); got != events.RiskLow {
-		t.Errorf("floor for an ordinary push = %q, want low", got)
+		t.Errorf("floor for a new branch with ordinary files = %q, want low", got)
 	}
 	if got := Floor(withSecret); got != events.RiskHigh {
 		t.Errorf("floor for a push adding .env = %q, want high", got)

@@ -83,12 +83,16 @@ rehearse --reviewer-model qwen3.5:9b claude
 Nothing about a held action is sent anywhere else. `rehearse` refuses a
 reviewer address that isn't on this machine or your private network.
 
-The model is not trusted with the decision. Fixed rules set a floor it can't
-go below: a force push, a deletion, a publish, anything carrying one of your
-details or a planted value, and a push of files that look like secrets (`.env`,
-private keys, `*.pem`, `*.key`, credentials files) are always high risk. The
-exact command sits next to every explanation, and the page says when an
-explanation was written by the model.
+The model is not trusted with the decision. Fixed rules rate every action
+first, and the model can only raise that rating, never lower it. A force
+push, a deletion, a publish, a change to who can access a repository, any
+`DELETE` request, anything carrying one of your details or a planted value,
+and a push of files that look like secrets (`.env`, private keys, `*.pem`,
+`*.key`, credentials files) are always high risk. Only a few kinds can be
+low: a push of a new branch that isn't the default one, opening or commenting
+on an issue or pull request, and adding labels. Everything else is at least
+medium. The exact command sits next to every explanation, and the page says
+when an explanation was written by the model.
 
 If the model can't be reached, answers too slowly, or twice returns something
 unusable, the same rules write the explanation instead and the page says so.
@@ -227,9 +231,6 @@ for it, and `rehearse` says so when it exits.
   against a planted instruction it kept its high rating but called the
   destination "public", which nothing in the action said. Read the exact
   command, not only the explanation.
-- A model can still rate a medium action as low, which collapses it under
-  "Routine" with its tick on. The rules stop it rating a high-risk action
-  lower, not a medium one.
 - Decisions are accepted only after the agent has exited and only from the
   Rehearsal page. A process the agent left running in the background could
   still send one, because nothing isolates it yet.

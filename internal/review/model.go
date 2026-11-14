@@ -271,54 +271,80 @@ func (m *Model) WarmUp(ctx context.Context) error {
 func (m *Model) ask(ctx context.Context, action string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, m.timeout)
 	defer cancel()
-	return m.chat(ctx, map[string]any{
+	return m.chat(ctx, reviewRequest(instructions, action))
+}
+
+func reviewRequest(system, action string) map[string]any {
+	return map[string]any{
 		"max_tokens": 200,
 		"response_format": map[string]any{
 			"type":        "json_schema",
 			"json_schema": map[string]any{"name": "review", "strict": true, "schema": replySchema},
 		},
-		"messages": []message{{"system", instructions}, {"user", action}},
-	})
+		"messages": []message{{"system", system}, {"user", action}},
+	}
 }
 
 // chat sends one request with the settings every call shares: no
 // streaming, temperature 0, and the thinking phase switched off (which
 // takes an answer from about ten seconds to about three).
 func (m *Model) chat(ctx context.Context, request map[string]any) (string, error) {
-	request["model"] = m.name
 	request["stream"] = false
 	request["temperature"] = 0
 	request["reasoning_effort"] = "none"
+	c, err := m.post(ctx, request)
+	return c.content, err
+}
+
+func (m *Model) post(ctx context.Context, request map[string]any) (completion, error) {
+	request["model"] = m.name
 	body, err := json.Marshal(request)
 	if err != nil {
-		return "", err
+		return completion{}, err
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, m.url, bytes.NewReader(body))
 	if err != nil {
-		return "", err
+		return completion{}, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	res, err := m.client.Do(req)
 	if err != nil {
-		return "", err
+		return completion{}, err
 	}
 	defer res.Body.Close() // read below; nothing was written to it
 	data, err := io.ReadAll(io.LimitReader(res.Body, 1<<20))
 	if err != nil {
-		return "", err
+		return completion{}, err
 	}
 	if res.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("status %d: %s", res.StatusCode, strings.TrimSpace(string(data[:min(len(data), 200)])))
+		return completion{}, fmt.Errorf("status %d: %s", res.StatusCode, strings.TrimSpace(string(data[:min(len(data), 200)])))
 	}
 	var out struct {
 		Choices []struct {
-			Message message `json:"message"`
+			Message struct {
+				Content string `json:"content"`
+				// where servers put the model's thinking when it is not switched off
+				Reasoning string `json:"reasoning"`
+			} `json:"message"`
 		} `json:"choices"`
+		Usage struct {
+			CompletionTokens int `json:"completion_tokens"`
+		} `json:"usage"`
 	}
 	if err := json.Unmarshal(data, &out); err != nil || len(out.Choices) == 0 {
-		return "", fmt.Errorf("the reply is not a chat completion (%d bytes)", len(data))
+		return completion{}, fmt.Errorf("the reply is not a chat completion (%d bytes)", len(data))
 	}
-	return out.Choices[0].Message.Content, nil
+	return completion{
+		content:      out.Choices[0].Message.Content,
+		reasoning:    out.Choices[0].Message.Reasoning,
+		outputTokens: out.Usage.CompletionTokens,
+	}, nil
+}
+
+type completion struct {
+	content      string
+	reasoning    string
+	outputTokens int
 }
 
 // DefaultURL is where the model is looked for when no address is given.

@@ -67,6 +67,48 @@ func TestPushFacts(t *testing.T) {
 		}
 	})
 
+	t.Run("which pushes are minor", func(t *testing.T) {
+		if _, ok := g.out("branch", "feature"); !ok {
+			t.Fatal("cannot create a branch")
+		}
+		tests := []struct {
+			name  string
+			args  []string
+			setup func()
+			minor bool
+		}{
+			{"a new branch with an ordinary name", []string{"origin", "feature"}, nil, true},
+			{"main, when the remote's default is not known", []string{"origin", "main"}, nil, false},
+			{"a new branch and main together", []string{"origin", "feature", "main"}, nil, false},
+			{"a new branch pushed under the name main", []string{"origin", "feature:main"}, nil, false},
+			{"a deletion", []string{"origin", "--delete", "feature"}, nil, false},
+			{"every branch", []string{"--all", "origin"}, nil, false},
+			{"a branch the remote already has", []string{"origin", "feature"}, func() {
+				head, _ := g.out("rev-parse", "HEAD")
+				g.out("update-ref", "refs/remotes/origin/feature", head)
+			}, false},
+			{"main, when the remote's default is known to be trunk", []string{"origin", "main"}, func() {
+				g.out("update-ref", "-d", "refs/remotes/origin/feature")
+				g.out("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/trunk")
+			}, true},
+			{"trunk, the known default", []string{"origin", "main:trunk"}, nil, false},
+		}
+		for _, tt := range tests {
+			if tt.setup != nil {
+				tt.setup()
+			}
+			facts, err := pushFacts(g, parsePush(tt.args))
+			if err != nil {
+				t.Fatalf("%s: %v", tt.name, err)
+			}
+			if facts.minor != tt.minor {
+				t.Errorf("%s: minor = %t, want %t", tt.name, facts.minor, tt.minor)
+			}
+		}
+		// leave the repository as the later subtests expect it
+		g.out("symbolic-ref", "-d", "refs/remotes/origin/HEAD")
+	})
+
 	t.Run("no arguments means the current branch", func(t *testing.T) {
 		facts, err := pushFacts(g, parsePush(nil))
 		if err != nil {
