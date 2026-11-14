@@ -84,6 +84,8 @@ export interface Identifier {
   id: string
   kind: Kind
   label: string
+  // the variable's name, for a value read from a .env file; otherwise empty
+  name: string
   value: string
 }
 
@@ -215,10 +217,15 @@ export interface Review {
 export interface HeldAction {
   id: string
   kind: ActionKind
-  // the command line or request exactly as the agent issued it, secrets masked
+  // the command line or the request's full address as the agent issued it,
+  // with secrets and watched values masked
   exact: string
+  // a request's method and path, without the query
+  brief: string
   workDir: string
   destination: string
+  // git push: the name the remote is configured under, or empty
+  remote: string
   subject: string
   size: number
   contentType: string
@@ -342,6 +349,7 @@ function parseIdentifier(value: unknown, what: string): Identifier {
     id: text(from, 'id', what),
     kind: oneOf(from, 'kind', kinds, what),
     label: text(from, 'label', what),
+    name: maybeText(from, 'name', what),
     value: text(from, 'value', what),
   }
 }
@@ -501,24 +509,40 @@ function parseFileChange(value: unknown, what: string): FileChange {
   }
 }
 
-function parseAction(value: unknown, what: string): HeldAction {
+/**
+ * Writes paths under the home folder with a ~, wherever they appear in
+ * text. home is empty when it is not known, and the text is left alone.
+ */
+export function tilde(text: string, home: string): string {
+  if (home === '' || home === '/') return text
+  const escaped = home.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return text.replace(new RegExp(`(^|[^\\w./~-])${escaped}(?=/|$|[^\\w.-])`, 'g'), '$1~')
+}
+
+function parseAction(value: unknown, what: string, home = ''): HeldAction {
   const from = fields(value, what)
   const kind = oneOf(from, 'kind', actionKinds, what)
   const file = from['file'] === undefined ? null : parseFileChange(from['file'], `${what}.file`)
   let exact: string
+  let brief = ''
   if (file !== null) {
     exact = `${file.change} ${file.path}`
   } else if (kind === 'http') {
-    exact = `${text(from, 'method', what)} ${text(from, 'host', what)}${text(from, 'path', what)}`
+    const scheme = maybeText(from, 'scheme', what)
+    const query = maybeText(from, 'query', what)
+    brief = `${text(from, 'method', what)} ${text(from, 'path', what)}`
+    exact = `${text(from, 'method', what)} ${scheme === '' ? '' : `${scheme}://`}${text(from, 'host', what)}${text(from, 'path', what)}${query === '' ? '' : `?${query}`}`
   } else {
-    exact = list(from, 'command', what, word).join(' ')
+    exact = tilde(list(from, 'command', what, word).join(' '), home)
   }
   return {
     id: text(from, 'id', what),
     kind,
     exact,
-    workDir: maybeText(from, 'work_dir', what),
-    destination: text(from, 'destination', what),
+    brief,
+    workDir: tilde(maybeText(from, 'work_dir', what), home),
+    destination: tilde(text(from, 'destination', what), home),
+    remote: maybeText(from, 'remote', what),
     subject: maybeText(from, 'subject', what),
     size: maybeCount(from, kind === 'http' ? 'request_bytes' : 'stdin_bytes', what),
     contentType: maybeText(from, 'content_type', what),
@@ -544,9 +568,10 @@ function parseAction(value: unknown, what: string): HeldAction {
 
 function parseHeld(value: unknown): Held {
   const from = fields(value, 'held')
+  const home = maybeText(from, 'home', 'held')
   return {
     phase: oneOf(from, 'phase', phases, 'held'),
-    actions: list(from, 'actions', 'held', parseAction),
+    actions: list(from, 'actions', 'held', (item, what) => parseAction(item, what, home)),
   }
 }
 

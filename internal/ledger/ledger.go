@@ -43,6 +43,8 @@ type Ledger struct {
 	// servers other than the model provider whose replies were read
 	Outside []OutsideSource `json:"outside"`
 	Report  Report          `json:"report"`
+	// the user's home folder, set only for the page
+	Home string `json:"home,omitempty"`
 	// the version of rehearse that recorded the session
 	ToolVersion string `json:"tool_version"`
 	// commits made in the working folder's repository during the session;

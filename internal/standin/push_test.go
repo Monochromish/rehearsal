@@ -52,8 +52,8 @@ func TestPushFacts(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if facts.destination != bare {
-			t.Errorf("destination = %q, want the remote's address %q", facts.destination, bare)
+		if facts.destination != bare || facts.remote != "origin" {
+			t.Errorf("destination = %q under the name %q, want the remote's address %q under origin", facts.destination, facts.remote, bare)
 		}
 		if len(facts.refs) != 1 || facts.refs[0].Ref != "refs/heads/main" || facts.refs[0].Commit != first {
 			t.Errorf("refs = %+v, want refs/heads/main at %s", facts.refs, first)

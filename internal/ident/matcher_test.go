@@ -95,3 +95,41 @@ func TestNewCanariesAreUniqueAndSearchable(t *testing.T) {
 		}
 	}
 }
+
+func TestMaskReplacesEveryFormOfAWatchedValueWithItsName(t *testing.T) {
+	ids := []events.Identifier{
+		{ID: "user", Kind: events.KindReal, Label: "Your computer username", Value: "adal"},
+		{ID: "env-1", Kind: events.KindSecret, Label: "Value of PAYMENTS_API_KEY from .env", Name: "PAYMENTS_API_KEY"},
+	}
+	key := "pk live/9f3a7c2e41b8d605"
+	m := NewMatcher(ids, Secret{ID: "env-1", Value: key})
+	tests := []struct{ name, text, want string }{
+		{"nothing watched", "k=1&page=2", "k=1&page=2"},
+		{"empty", "", ""},
+		{"plain, in a query", "k=" + key + "&v=1", "k=[PAYMENTS_API_KEY]&v=1"},
+		{"URL-escaped", "k=" + url.QueryEscape(key), "k=[PAYMENTS_API_KEY]"},
+		{"in another case", "k=" + "PK LIVE/9F3A7C2E41B8D605", "k=[PAYMENTS_API_KEY]"},
+		{"base64, with what surrounds it", "d=" + b64("x"+key+"y") + "&v=1", "d=[PAYMENTS_API_KEY]&v=1"},
+		{"twice, and a detail by its label", "/home/adal/" + key + "/" + key, "/home/[Your computer username]/[PAYMENTS_API_KEY]/[PAYMENTS_API_KEY]"},
+		{"inside a longer word", "xadalx", "x[Your computer username]x"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := m.Mask(tt.text)
+			if got != tt.want {
+				t.Errorf("Mask(%q) = %q, want %q", tt.text, got, tt.want)
+			}
+			if found := m.Find([]byte(got)); len(found) > 0 {
+				t.Errorf("Mask(%q) = %q, which still carries %v", tt.text, got, found)
+			}
+		})
+	}
+}
+
+func TestMaskShowsNothingWhenAValueSurvives(t *testing.T) {
+	// Find lowers "É" and Mask does not, so Mask can't place this one
+	m := NewMatcher([]events.Identifier{{ID: "name", Kind: events.KindReal, Label: "Your name", Value: "Émile Zola"}})
+	if got := m.Mask("author=ÉMILE ZOLA"); got != NotShown {
+		t.Errorf("Mask = %q, want %q", got, NotShown)
+	}
+}

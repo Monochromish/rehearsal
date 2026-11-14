@@ -13,6 +13,7 @@ import (
 	"mime"
 	"net"
 	"net/http"
+	"os"
 	"slices"
 	"strconv"
 	"sync"
@@ -142,8 +143,15 @@ func localOnly(next http.Handler) http.Handler {
 	})
 }
 
+// ledger is the session as the page is given it. The home folder goes
+// with it so the page can write paths under it with a ~, and is not part
+// of the ledger written to disk.
 func (s *Server) ledger() (ledger.Ledger, error) {
-	return ledger.FromLog(s.log)
+	l, err := ledger.FromLog(s.log)
+	if home, herr := os.UserHomeDir(); herr == nil {
+		l.Home = home
+	}
+	return l, err
 }
 
 func writeJSON(w http.ResponseWriter, v any) {
@@ -169,6 +177,7 @@ func (s *Server) handleLedger(w http.ResponseWriter, _ *http.Request) {
 // held is the part of the ledger the decision screen needs.
 type held struct {
 	Phase   ledger.Phase    `json:"phase"`
+	Home    string          `json:"home,omitempty"`
 	Actions []ledger.Action `json:"actions"`
 }
 
@@ -178,7 +187,7 @@ func (s *Server) handleHeld(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, held{Phase: l.Phase, Actions: l.Actions})
+	writeJSON(w, held{Phase: l.Phase, Home: l.Home, Actions: l.Actions})
 }
 
 // handleApply takes the user's decision. It makes real things happen, so

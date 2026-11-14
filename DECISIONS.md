@@ -82,6 +82,19 @@ response status. Per identifier found: which one, which part of the request
 (address, header or body) and which form. Headers, cookies, query strings and
 bodies are never stored.
 
+A held request keeps one thing more, so the decision screen can show where
+a watched value was going: the names of its query parameters. The values
+are not kept. Where a value held something being watched for, the name of
+that thing stands in its place (`k=[PAYMENTS_API_KEY]`), and every other
+value is written `[hidden]`, because a credential can sit under any
+parameter name. A watched value in the path is replaced by its name in the
+same way.
+
+A push to a remote that is a folder on this computer has that folder's
+path in its command and its destination. The path isn't sent anywhere, so
+a username found only there is not reported as carried. Commit messages
+and file names are sent, and are still checked.
+
 Only the program name of the wrapped command is stored. Its arguments may
 hold secrets.
 

@@ -1,6 +1,7 @@
 package hold
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"testing"
 
 	"rehearsal/internal/events"
+	"rehearsal/internal/ident"
 )
 
 func TestStoreKeepsPayloadsPrivate(t *testing.T) {
@@ -131,5 +133,61 @@ func TestStoreNeverOverwrites(t *testing.T) {
 	}
 	if got, err := store.Load("a1"); err != nil || got.Method != "POST" {
 		t.Errorf("a1 after the refused overwrite = %+v (err %v), want the original POST", got, err)
+	}
+}
+
+// A username in the path of a local remote is where the remote is, not
+// something the push sends. The same name in a commit message is sent.
+func TestALocalPathIsNotSomethingSent(t *testing.T) {
+	user := events.Identifier{ID: "user", Kind: events.KindReal, Label: "Your computer username", Value: "adal"}
+	m := Masker{Matcher: ident.NewMatcher([]events.Identifier{user})}
+	tests := []struct {
+		name string
+		c    Command
+		want []string
+	}{
+		{"a remote that is a folder on this computer",
+			Command{Args: []string{"push", "origin", "main"}, Destination: "/home/adal/remote.git", Remote: "origin"}, []string{}},
+		{"the same folder given on the command line",
+			Command{Args: []string{"push", "/home/adal/remote.git", "main"}, Destination: "/home/adal/remote.git"}, []string{}},
+		{"a file address", Command{Args: []string{"push", "origin"}, Destination: "file:///home/adal/remote.git", Remote: "origin"}, []string{}},
+		{"a remote on another machine", Command{Args: []string{"push", "origin"}, Destination: "https://git.example.test/adal/shop.git", Remote: "origin"}, []string{"user"}},
+		{"a commit message", Command{Args: []string{"push", "origin"}, Destination: "/home/adal/remote.git", Commits: []string{"Fix adal's typo"}}, []string{"user"}},
+		{"a file name", Command{Args: []string{"push", "origin"}, Destination: "/srv/remote.git", Files: []string{"notes/adal.md"}}, []string{"user"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			log, err := events.Open(filepath.Join(t.TempDir(), "events.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() {
+				if err := log.Close(); err != nil {
+					t.Error(err)
+				}
+			}()
+			store, err := NewStore(filepath.Join(t.TempDir(), "held"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			tt.c.Kind, tt.c.Program, tt.c.WorkDir = events.ActionGitPush, "git", "/home/adal/project"
+			if _, err := NewHolder(log, store).HoldCommand(tt.c, m); err != nil {
+				t.Fatal(err)
+			}
+			evs, err := log.Since(0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var held events.ActionHeld
+			if err := json.Unmarshal(evs[len(evs)-1].Data, &held); err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(held.IdentifierIDs, tt.want) {
+				t.Errorf("carries %v, want %v", held.IdentifierIDs, tt.want)
+			}
+			if held.Remote != tt.c.Remote {
+				t.Errorf("remote = %q, want %q", held.Remote, tt.c.Remote)
+			}
+		})
 	}
 }

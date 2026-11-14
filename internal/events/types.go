@@ -85,6 +85,8 @@ type Identifier struct {
 	ID    string `json:"id"`
 	Kind  Kind   `json:"kind"`
 	Label string `json:"label"`
+	// the variable's name, when the value was read from a .env file
+	Name  string `json:"name,omitempty"`
 	Value string `json:"value"`
 	Hash  string `json:"hash,omitempty"`
 }
@@ -278,14 +280,20 @@ type ActionHeld struct {
 	SecretFiles []string `json:"secret_files,omitempty"`
 
 	// held requests
-	RequestID    string `json:"request_id,omitempty"`
-	Method       string `json:"method,omitempty"`
-	Host         string `json:"host,omitempty"`
-	Path         string `json:"path,omitempty"`
+	RequestID string `json:"request_id,omitempty"`
+	Method    string `json:"method,omitempty"`
+	Host      string `json:"host,omitempty"`
+	Path      string `json:"path,omitempty"`
+	// the address's scheme and query string. A watched value in the path
+	// or the query is replaced by its name, so the address can be shown.
+	Scheme       string `json:"scheme,omitempty"`
+	Query        string `json:"query,omitempty"`
 	RequestBytes int64  `json:"request_bytes,omitempty"`
 	ContentType  string `json:"content_type,omitempty"`
 
 	Destination string `json:"destination"`
+	// git push: the name the remote is configured under, such as "origin"
+	Remote string `json:"remote,omitempty"`
 	// what is being sent, in a few words: "branch main", "left-pad@1.0.1"
 	Subject       string   `json:"subject,omitempty"`
 	IdentifierIDs []string `json:"identifier_ids"`

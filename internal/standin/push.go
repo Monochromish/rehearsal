@@ -10,7 +10,9 @@ import (
 
 type pushFactSheet struct {
 	destination string
-	subject     string
+	// the name the remote is configured under, when it has one
+	remote  string
+	subject string
 	// each local ref being pushed and what it points at now, so the push
 	// can be refused later if the ref has moved
 	refs []events.RefState
@@ -76,7 +78,7 @@ func pushFacts(g gitRunner, spec pushSpec) (pushFactSheet, error) {
 	}
 	facts.destination = remote // a URL or path given directly has no configured name
 	if url, ok := g.out("remote", "get-url", "--push", remote); ok && url != "" {
-		facts.destination = url
+		facts.destination, facts.remote = url, remote
 	}
 
 	var updates []refUpdate

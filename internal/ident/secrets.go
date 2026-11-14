@@ -65,6 +65,7 @@ func EnvSecrets(dir string) ([]events.Identifier, []Secret, error) {
 			ids = append(ids, events.Identifier{
 				ID: id, Kind: events.KindSecret,
 				Label: fmt.Sprintf("Value of %s from %s", e.name, base),
+				Name:  e.name,
 				Hash:  hex.EncodeToString(sum[:]),
 			})
 			secrets = append(secrets, Secret{ID: id, Value: e.value})

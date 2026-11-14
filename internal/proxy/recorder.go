@@ -399,6 +399,40 @@ func (r *Recorder) unfamiliar(req *mitm.Request) bool {
 	return first != sum
 }
 
+// shownPath is an address's path as it may be stored and displayed:
+// watched values replaced by their names, and anything else that looks
+// like a credential hidden.
+func (r *Recorder) shownPath(path string) string {
+	return redact.Text(r.matcher.Mask(path), r.holding.Canaries...)
+}
+
+// shownQuery is what is kept of a held request's query string: the name
+// of each parameter, the name of any watched value in place of the value,
+// and nothing of any other value. A query string can hold a credential
+// under any name, so no value is stored as it was sent.
+func (r *Recorder) shownQuery(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	parts := strings.Split(raw, "&")
+	for i, part := range parts {
+		name, value, named := strings.Cut(part, "=")
+		if !named {
+			name, value = "", name
+		}
+		if found := r.matcher.Names([]byte(value)); len(found) > 0 {
+			value = "[" + strings.Join(found, "][") + "]"
+		} else if value != "" {
+			value = redact.Hidden
+		}
+		if named {
+			value = r.matcher.Mask(name) + "=" + value
+		}
+		parts[i] = value
+	}
+	return strings.Join(parts, "&")
+}
+
 // hold puts the request to the session's policy. builtIn says whether the
 // built-in rules hold it. It reports whether the request was answered
 // here: kept back with a stand-in answer, or refused. If a request that
@@ -428,7 +462,9 @@ func (r *Recorder) hold(f *mitm.Flow, seen []events.IdentifierSeen, why held, bu
 		RequestID:       f.Id.String(),
 		Method:          req.Method,
 		Host:            host,
-		Path:            req.URL.Path,
+		Scheme:          req.URL.Scheme,
+		Path:            r.shownPath(req.URL.Path),
+		Query:           r.shownQuery(req.URL.RawQuery),
 		RequestBytes:    int64(len(req.Body)),
 		ContentType:     req.Header.Get("Content-Type"),
 		Destination:     host,

@@ -30,7 +30,9 @@ type Command struct {
 	Stdin      []byte            `json:"stdin,omitempty"`
 	GitGlobals []string          `json:"git_globals,omitempty"`
 
-	Destination     string            `json:"destination"`
+	Destination string `json:"destination"`
+	// git push: the name the remote is configured under, if it has one
+	Remote          string            `json:"remote,omitempty"`
 	Subject         string            `json:"subject,omitempty"`
 	Refs            []events.RefState `json:"refs,omitempty"`
 	Files           []string          `json:"files,omitempty"`
@@ -67,7 +69,17 @@ func (h *Holder) HoldCommand(c Command, m Masker) (Outcome, error) {
 	if c.WorkDir == "" {
 		return Outcome{}, errors.New("a stand-in reported a command with no working directory")
 	}
-	carried := strings.Join(slices.Concat(c.Args, c.Files, c.Commits), "\n") + "\n" + c.Destination + "\n" + string(c.Stdin)
+	// What the action sends: its arguments, the names of the files and the
+	// messages of the commits it uploads, and anything piped in. A path on
+	// this computer says where something is and is not sent, so a username
+	// that appears only in the path of a local remote is not reported.
+	sent := slices.Concat(c.Files, c.Commits)
+	for _, text := range append(slices.Clone(c.Args), c.Destination) {
+		if !localPath(text) {
+			sent = append(sent, text)
+		}
+	}
+	carried := strings.Join(sent, "\n") + "\n" + string(c.Stdin)
 	files, filesOmitted := cut(c.Files, maxFilesShown)
 	commits, commitsOmitted := cut(c.Commits, maxCommitsShown)
 	for i, subject := range commits {
@@ -86,6 +98,7 @@ func (h *Holder) HoldCommand(c Command, m Masker) (Outcome, error) {
 		StdinBytes:      len(c.Stdin),
 		Refs:            c.Refs,
 		Destination:     redact.Text(c.Destination, m.Keep...),
+		Remote:          c.Remote,
 		Subject:         c.Subject,
 		IdentifierIDs:   identifierIDs(m.Matcher.Find([]byte(carried))),
 		Force:           c.Force,
@@ -111,6 +124,16 @@ func cut(items []string, limit int) ([]string, int) {
 		return slices.Clone(items), 0
 	}
 	return slices.Clone(items[:limit]), len(items) - limit
+}
+
+// localPath reports whether text names a place on this computer.
+func localPath(text string) bool {
+	for _, prefix := range []string{"/", "./", "../", "~/", "file://"} {
+		if strings.HasPrefix(text, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func identifierIDs(matches []ident.Match) []string {

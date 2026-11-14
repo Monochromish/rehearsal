@@ -1,7 +1,7 @@
 // Words for the page. Everything here is worked out from facts the API
 // already gives; none of it is written by the model.
 
-import type { Held, HeldAction, Ledger, Risk } from './api'
+import type { Held, HeldAction, Identifier, Ledger, Risk } from './api'
 
 /** One line on the decision screen: an action, or several identical ones. */
 export interface Row {
@@ -38,9 +38,26 @@ const nouns: Record<HeldAction['kind'], [string, string]> = {
 
 const fileVerbs = { added: 'Add', changed: 'Change', deleted: 'Delete' }
 
+/** Where an action goes. A push names its remote, then the remote's address. */
+export function where(a: HeldAction): string {
+  return a.remote === '' ? a.destination : `${a.remote} (${a.destination})`
+}
+
+// What a carried value is called in a headline: the variable's name for a
+// value from a .env file, and otherwise its label.
+function called(item: Identifier): string {
+  return item.name === '' ? item.label.charAt(0).toLowerCase() + item.label.slice(1) : item.name
+}
+
+function carried(a: HeldAction): string {
+  const names = a.carries.map(called)
+  if (names.length <= 2) return names.join(' and ')
+  return `${names.slice(0, 2).join(', ')} and ${names.length - 2} more`
+}
+
 /** What the action would do, in plain words. */
 export function plainTitle(a: HeldAction): string {
-  const to = a.destination
+  const to = where(a)
   switch (a.kind) {
     case 'git-push':
       if (a.force) return `Overwrite ${a.subject || 'what is there'} at ${to}`
@@ -51,7 +68,9 @@ export function plainTitle(a: HeldAction): string {
     case 'gh':
       return `Run "gh ${a.subject}" on ${to.replace('GitHub repository ', '').replace('GitHub, for ', '')}`
     case 'http':
-      return a.deletes ? `Ask ${to} to delete something` : `Send ${bytes(a.size)} to ${to}`
+      if (a.deletes) return `Ask ${to} to delete something`
+      if (a.carries.length > 0) return `Send ${carried(a)} to ${to}`
+      return a.size === 0 ? `Send a request to ${to}` : `Send ${bytes(a.size)} to ${to}`
     case 'file': {
       const f = a.file
       if (f === null) return a.exact
@@ -65,8 +84,8 @@ export function plainTitle(a: HeldAction): string {
 /** "what, from where -> where", for the monospace line. */
 export function route(a: HeldAction, agent: string): string {
   if (a.file !== null) return `${a.file.change}, the sandbox -> ${a.workDir}/${a.file.path}`
-  const what = a.kind === 'http' ? a.exact.replace(a.destination, '') : a.exact.split(' ').slice(0, a.kind === 'gh' ? 3 : 2).join(' ')
-  return `${what}, ${a.workDir || agent} -> ${a.destination}`
+  const what = a.kind === 'http' ? a.brief : a.exact.split(' ').slice(0, a.kind === 'gh' ? 3 : 2).join(' ')
+  return `${what}, ${a.workDir || agent} -> ${where(a)}`
 }
 
 /**
@@ -83,7 +102,7 @@ export function rowsFor(actions: HeldAction[], agent: string): Row[] {
       rows.set(key, { key: a.id, actions: [a], first: a, risk: riskOf(a), title: plainTitle(a), line: route(a, agent) })
     } else {
       row.actions.push(a)
-      row.title = `${plural(row.actions.length, ...nouns[a.kind])} to ${a.destination}`
+      row.title = `${plural(row.actions.length, ...nouns[a.kind])} to ${where(a)}`
     }
   }
   return [...rows.values()].sort((x, y) => x.first.destination.localeCompare(y.first.destination))
@@ -175,7 +194,7 @@ export function markdown(ledger: Ledger, held: Held): string {
   if (held.actions.length > 0) {
     lines.push('| Action | Destination | Data sent | Decision |', '|---|---|---|---|')
     for (const a of held.actions) {
-      lines.push(`| \`${cell(a.exact)}\` | ${cell(a.destination)} | ${cell(dataSent(a))} | ${outcomeOf(a)?.word ?? 'Undecided'} |`)
+      lines.push(`| \`${cell(a.exact)}\` | ${cell(where(a))} | ${cell(dataSent(a))} | ${outcomeOf(a)?.word ?? 'Undecided'} |`)
     }
     lines.push('')
   }

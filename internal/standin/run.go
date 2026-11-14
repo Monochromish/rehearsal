@@ -69,6 +69,7 @@ func Main(name string, args []string) int {
 			return 1
 		}
 		c.GitGlobals, c.Destination, c.Subject, c.Refs = plan.Globals, facts.destination, facts.subject, facts.refs
+		c.Remote = facts.remote
 		c.Files, c.Commits, c.Minor = facts.files, facts.commits, facts.minor
 		stdout, stderr = facts.stdout, facts.stderr
 	case "npm":

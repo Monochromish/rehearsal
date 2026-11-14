@@ -80,6 +80,7 @@ func TestWritesAreHeld(t *testing.T) {
 	}
 	want := events.ActionHeld{
 		ID: "a1", Kind: events.ActionHTTP, Method: http.MethodPost, Host: "localhost:8099", Path: "/upload",
+		Scheme: "http", Query: "session=[hidden]",
 		RequestBytes: int64(len(body)), ContentType: "application/json", Destination: "localhost:8099",
 	}
 	gotIDs := held.IdentifierIDs

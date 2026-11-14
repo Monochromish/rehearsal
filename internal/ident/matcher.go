@@ -4,9 +4,11 @@ package ident
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/base64"
 	"encoding/hex"
 	"net/url"
+	"slices"
 	"strings"
 
 	"rehearsal/internal/events"
@@ -34,14 +36,20 @@ type needle struct {
 
 type Matcher struct {
 	needles []needle
+	// what each identifier is called where its value is masked
+	names map[string]string
 }
 
 // NewMatcher watches for the identifiers that have a value, and for the
 // secrets, whose values are given separately because they are never put
 // in an Identifier.
 func NewMatcher(ids []events.Identifier, secrets ...Secret) *Matcher {
-	m := &Matcher{}
+	m := &Matcher{names: map[string]string{}}
 	for _, id := range ids {
+		m.names[id.ID] = id.Label
+		if id.Name != "" {
+			m.names[id.ID] = id.Name
+		}
 		m.watch(id.ID, id.Value)
 	}
 	for _, s := range secrets {
@@ -133,6 +141,112 @@ func (m *Matcher) Find(text []byte) []Match {
 		}
 	}
 	return out
+}
+
+// NotShown stands in for text that still held a watched value after
+// masking.
+const NotShown = "[not shown: it carries a watched value]"
+
+// Mask returns text with every watched value in it replaced by the value's
+// name in square brackets, so that where a value went can be shown without
+// showing the value. It masks more readily than Find matches: a value
+// inside a longer word is masked too.
+func (m *Matcher) Mask(text string) string {
+	if text == "" {
+		return ""
+	}
+	b := []byte(text)
+	lower := asciiLower(b)
+	type span struct {
+		start, end int
+		id         string
+	}
+	var spans []span
+	for _, n := range m.needles {
+		hay := b
+		if n.wholeWord {
+			hay = lower
+		}
+		for from := 0; from < len(hay); {
+			i := bytes.Index(hay[from:], n.pattern)
+			if i < 0 {
+				break
+			}
+			start := from + i
+			end := start + len(n.pattern)
+			if !n.wholeWord {
+				// an encoded value: the characters either side of the
+				// match carry parts of it too, so the whole run goes
+				for start > 0 && isEncoded(b[start-1]) {
+					start--
+				}
+				for end < len(b) && isEncoded(b[end]) {
+					end++
+				}
+				for end < len(b) && b[end] == '=' {
+					end++ // base64 padding
+				}
+			}
+			spans = append(spans, span{start, end, n.id})
+			from = end
+		}
+	}
+	slices.SortFunc(spans, func(x, y span) int { return cmp.Compare(x.start, y.start) })
+	var out strings.Builder
+	at := 0
+	for _, s := range spans {
+		if s.start < at {
+			if s.end > at {
+				at = s.end // overlaps the one before: already masked up to here
+			}
+			continue
+		}
+		out.Write(b[at:s.start])
+		name := m.names[s.id]
+		if name == "" {
+			name = "a watched value"
+		}
+		out.WriteString("[" + name + "]")
+		at = s.end
+	}
+	out.Write(b[at:])
+	// Find lowers every letter and Mask only the ASCII ones, so a value
+	// with other capitals could be missed above. Show nothing then.
+	if len(m.Find([]byte(out.String()))) > 0 {
+		return NotShown
+	}
+	return out.String()
+}
+
+// Names lists what the watched values found in text are called.
+func (m *Matcher) Names(text []byte) []string {
+	var out []string
+	for _, found := range m.Find(text) {
+		name := m.names[found.IdentifierID]
+		if name == "" {
+			name = "a watched value"
+		}
+		out = append(out, name)
+	}
+	return out
+}
+
+func asciiLower(b []byte) []byte {
+	out := make([]byte, len(b))
+	for i, c := range b {
+		if c >= 'A' && c <= 'Z' {
+			c += 'a' - 'A'
+		}
+		out[i] = c
+	}
+	return out
+}
+
+// isEncoded reports whether b can be part of base64 or hex text. The
+// padding sign is left out: it only ends such text, and it also separates
+// a name from a value in an address.
+func isEncoded(b byte) bool {
+	return isAlnum(b) || b == '+' || b == '/' || b == '_' || b == '-'
 }
 
 func containsWord(text, pattern []byte) bool {

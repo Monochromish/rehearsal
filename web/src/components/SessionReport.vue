@@ -2,7 +2,8 @@
 import { computed, ref } from 'vue'
 import type { Held, Ledger, LogEvent } from '../api'
 import type { Row } from '../present'
-import { dataSent, markdown, outcomeOf, rowsFor } from '../present'
+import { dataSent, markdown, outcomeOf, rowsFor, where } from '../present'
+import BreakableText from './BreakableText.vue'
 
 const props = defineProps<{
   ledger: Ledger
@@ -109,10 +110,10 @@ async function copy(): Promise<void> {
       <div v-for="row in rows" :key="row.key" class="line">
         <div class="action">
           <div class="title">{{ row.title }}</div>
-          <div class="exact">{{ row.first.exact }}</div>
+          <div class="exact"><BreakableText :text="row.first.exact" /></div>
           <div v-if="row.first.outcome === 'failed'" class="exact">{{ row.first.detail }}</div>
         </div>
-        <div class="destination">{{ row.first.destination }}</div>
+        <div class="destination"><BreakableText :text="where(row.first)" /></div>
         <div class="data">{{ dataSent(row.first) }}</div>
         <div :class="`decision decision-${outcomeOf(row.first)?.tone ?? 'plain'}`">
           {{ outcomeOf(row.first)?.word ?? 'Undecided' }}

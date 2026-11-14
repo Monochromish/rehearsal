@@ -4,6 +4,7 @@ import type { Identifier } from '../api'
 import { getDiff } from '../api'
 import type { Row } from '../present'
 import { outcomeOf, riskWords } from '../present'
+import BreakableText from './BreakableText.vue'
 
 const props = defineProps<{
   row: Row
@@ -105,8 +106,8 @@ defineExpose({ toggleCommand: () => (open.value = !open.value) })
     </div>
 
     <div class="main">
-      <label class="title" :for="boxID">{{ row.title }}</label>
-      <div class="route">{{ row.line }}</div>
+      <label class="title" :for="boxID"><BreakableText :text="row.title" /></label>
+      <div class="route"><BreakableText :text="row.line" /></div>
       <div class="reviewer">{{ reviewer }}</div>
       <div v-if="a.needsRealAnswer" class="reviewer">
         The agent was given a made-up answer for this. If it needed the real one, what it did next may be wrong.
@@ -130,9 +131,9 @@ defineExpose({ toggleCommand: () => (open.value = !open.value) })
         <div v-if="changes.state === 'read'">{{ changes.text === '' ? 'The two versions are the same as text. Only the file type or its permissions changed.' : changes.text }}</div>
       </div>
       <div v-if="open && !isFile" class="command">
-        <div>{{ a.exact }}</div>
+        <div><BreakableText :text="a.exact" /></div>
         <div v-if="row.actions.length > 1">Issued {{ row.actions.length }} times.</div>
-        <div v-if="a.workDir !== ''">Run in {{ a.workDir }}</div>
+        <div v-if="a.workDir !== ''">Run in <BreakableText :text="a.workDir" /></div>
         <div v-if="a.size > 0">{{ a.size }} bytes {{ a.contentType }}</div>
         <div v-if="a.outsideSources.length > 0">Issued after the agent read content from: {{ a.outsideSources.join(', ') }}</div>
         <div v-if="a.commits.length > 0" class="list">
@@ -142,7 +143,7 @@ defineExpose({ toggleCommand: () => (open.value = !open.value) })
         </div>
         <div v-if="a.files.length > 0" class="list">
           <div>Files added or changed:</div>
-          <div v-for="file in a.files" :key="file" class="entry">{{ file }}</div>
+          <div v-for="file in a.files" :key="file" class="entry"><BreakableText :text="file" /></div>
           <div class="entry">{{ more(a.filesOmitted, 'files') }}</div>
         </div>
       </div>
