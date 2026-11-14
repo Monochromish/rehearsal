@@ -252,6 +252,14 @@ func TestFindingsRestOnRawEntries(t *testing.T) {
 		t.Fatalf("findings = %v, want %v", got, want)
 	}
 	for _, f := range c.Findings {
+		// a headline short enough to read at a glance, a line under it, and
+		// the one entry that shows it, which is among those it rests on
+		if n := len(strings.Fields(f.Headline)); n == 0 || n > 10 || f.Support == "" {
+			t.Errorf("%s: headline %q (%d words), support %q", f.ID, f.Headline, n, f.Support)
+		}
+		if !slices.ContainsFunc(f.Refs, func(r Ref) bool { return r.Seq == f.Key.Seq && r.Label == f.Key.Label }) {
+			t.Errorf("%s: its key entry %s is not one it rests on", f.ID, f.Key.Cite())
+		}
 		if len(f.How) < 3 || f.How[0].Stage != "Intake" || f.How[len(f.How)-1].Stage != "Finding" {
 			t.Errorf("%s: how it was found = %+v", f.ID, f.How)
 		}
@@ -378,6 +386,12 @@ func TestAChainCanCrossSessions(t *testing.T) {
 	c := open(t, dir, pub)
 	if got := kinds(c); !slices.Equal(got, []string{KindSentAfterReading, KindSameDestination}) {
 		t.Fatalf("findings = %v", got)
+	}
+	if c.Findings[0].Headline != "A planted value was sent to paste.example.net" || c.Findings[0].Support != "The address came from content read from wiki.example.org" {
+		t.Errorf("headline %q, support %q", c.Findings[0].Headline, c.Findings[0].Support)
+	}
+	if c.Findings[1].Headline != "paste.example.net appears in 2 sessions" {
+		t.Errorf("headline %q", c.Findings[1].Headline)
 	}
 	f := c.Findings[0]
 	if !slices.Equal(f.Sessions, []string{"S1", "S2"}) || f.Refs[0].Cite() != "[S1#3]" {

@@ -106,9 +106,15 @@ type Link struct {
 
 // Finding is one thing the rules report, with everything it rests on.
 type Finding struct {
-	ID       string   `json:"id"`
-	Kind     string   `json:"kind"`
-	Title    string   `json:"title"`
+	ID   string `json:"id"`
+	Kind string `json:"kind"`
+	// the finding in ten words or fewer, one line that supports it, and
+	// the finding as a full sentence
+	Headline string `json:"headline"`
+	Support  string `json:"support"`
+	Title    string `json:"title"`
+	// the one entry that most directly shows it
+	Key      Ref      `json:"key"`
 	Severity int      `json:"severity"`
 	Sessions []string `json:"sessions"`
 
@@ -451,6 +457,7 @@ func (b *builder) sentAfterReading() map[string]bool {
 				{Stage: "Finding", Refs: carried,
 					What: "Rule " + KindSentAfterReading + " reports a request that carries a watched value to a host first named in outside content."},
 			}
+			f.Headline, f.Support, f.Key = shortValue(sends)+" sent to "+host, "The address came from content read from "+m.source, sends[0].carriedRef()
 			b.findings = append(b.findings, f)
 		}
 	}
@@ -569,6 +576,11 @@ func (b *builder) encoded() {
 				{Stage: "Linking", Refs: p.Refs, What: "Set the hash of the decoded text beside the hash stored for the value, or decoded the text and compared it with the value the record lists."},
 				{Stage: "Finding", Refs: []Ref{carried}, What: "Rule " + KindEncoded + " reports a watched value found in a request in any form other than plain text."},
 			}
+			f.Headline, f.Key = shortValue([]send{s})+" sent to "+s.host+", encoded", carried
+			f.Support = "Written in " + enc + ". The record does not prove which value it was."
+			if p.Equal {
+				f.Support = "Written in " + enc + ". The proof is below."
+			}
 			b.findings = append(b.findings, f)
 		}
 	}
@@ -617,6 +629,10 @@ func (b *builder) destructive() {
 				{Stage: "Extraction", Refs: []Ref{at}, What: "Took the held action and what the recorder marked it as from one entry."},
 				{Stage: "Finding", Refs: []Ref{at}, What: "Rule " + KindDestructive + " reports a held action marked as deleting or as a forced push, and a DELETE request that was not held."},
 			}
+			f.Headline, f.Support, f.Key = "A forced push was attempted", subject, at
+			if h.v.Deletes {
+				f.Headline = "A delete was attempted at " + h.v.Destination
+			}
 			b.findings = append(b.findings, f)
 		}
 		for _, r := range v.order {
@@ -636,6 +652,7 @@ func (b *builder) destructive() {
 				{Stage: "Extraction", Refs: []Ref{at}, What: "Took the request's method and address from one entry."},
 				{Stage: "Finding", Refs: []Ref{at}, What: "Rule " + KindDestructive + " reports a held action marked as deleting or as a forced push, and a DELETE request that was not held."},
 			}
+			f.Headline, f.Support, f.Key = "A DELETE request was sent to "+r.v.Host, r.v.Host+r.v.Path, at
 			b.findings = append(b.findings, f)
 		}
 	}
@@ -683,6 +700,7 @@ func (b *builder) newServers(covered map[string]bool) {
 				{Stage: "Linking", Refs: f.Chain[0].Refs, What: "Rule first-contact-after-reading looked for the entry that records the content being read, and for any earlier request to the host."},
 				{Stage: "Finding", Refs: []Ref{at}, What: "Rule " + KindNewServer + " reports a held request whose destination was first contacted after outside content was read."},
 			}
+			f.Headline, f.Support, f.Key = h.v.Host+" was first contacted after outside content", "Content from "+strings.Join(h.v.OutsideSources, ", ")+" had been read before it", at
 			b.findings = append(b.findings, f)
 		}
 	}
@@ -732,6 +750,7 @@ func (b *builder) claims() {
 					break
 				}
 				f.How = append(how, HowStep{Stage: "Finding", Refs: []Ref{said}, What: "Rule " + KindClaim + " reports each claim whose recorded verdict is \"contradicted\"."})
+				f.Headline, f.Support, f.Key = "A claim by the agent is contradicted", fmt.Sprintf("%q", c.Claim), said
 				b.findings = append(b.findings, f)
 			}
 		}
@@ -760,6 +779,7 @@ func (b *builder) installs() {
 				{Stage: "Extraction", Refs: []Ref{at}, What: "Took the package, what the registry said and whether the install was stopped from one entry."},
 				{Stage: "Finding", Refs: []Ref{at}, What: "Rule " + KindInstall + " reports each package check that stopped an install."},
 			}
+			f.Headline, f.Support, f.Key = "An install of "+name+" was stopped", upperFirst(p.v.Facts), at
 			b.findings = append(b.findings, f)
 		}
 	}
@@ -820,8 +840,37 @@ func (b *builder) sameDestination() {
 			{Stage: "Linking", Refs: refs, What: "Rule same-destination compared those hosts across the sessions of the case."},
 			{Stage: "Finding", Refs: refs, What: "Rule " + KindSameDestination + " reports a host that turns up in this way in two sessions or more."},
 		}
+		f.Headline, f.Support, f.Key = fmt.Sprintf("%s appears in %d sessions", host, len(list)), "Named in outside content, or sent a watched value", refs[0]
 		b.findings = append(b.findings, f)
 	}
+}
+
+func upperFirst(s string) string {
+	if s == "" {
+		return s
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
+}
+
+// shortValue names what a set of sends carried in a few words, by kind
+// and not by label, for a headline: "A secret was", "2 watched values were".
+func shortValue(sends []send) string {
+	var ids []string
+	for _, s := range sends {
+		if !slices.Contains(ids, s.id.ID) {
+			ids = append(ids, s.id.ID)
+		}
+	}
+	if len(ids) > 1 {
+		return fmt.Sprintf("%d watched values were", len(ids))
+	}
+	switch sends[0].id.Kind {
+	case events.KindSecret:
+		return "A secret was"
+	case events.KindCanary:
+		return "A planted value was"
+	}
+	return "A detail of yours was"
 }
 
 func lowerFirst(s string) string {
@@ -909,6 +958,8 @@ func (b *builder) valueSent() {
 				Link{From: entity(EntitySecret, s.id.Label), To: entity(EntityServer, s.host), Via: "carried in a request", Refs: []Ref{s.carriedRef()}},
 				Link{From: v.sessionEntity(), To: entity(EntityServer, s.host), Via: "sent a request", Refs: []Ref{ref(s.first())}})
 			f.How = append(how, HowStep{Stage: "Finding", Refs: all, What: "Rule " + KindValueSent + " reports a watched value found on its way to a server that is not the model provider, when no other rule has reported it."})
+			f.Headline, f.Key = shortValue(sends)+" sent to "+s.host, s.carriedRef()
+			f.Support = "Found in " + whereWords(s.where) + ". " + f.Chain[len(f.Chain)-1].Label + "."
 			b.findings = append(b.findings, f)
 		}
 	}
@@ -955,6 +1006,7 @@ func (b *builder) highRisk() {
 				{Stage: "Linking", Refs: []Ref{at}, What: "Rule built-in-rating applied the rules that decide what is held to that entry."},
 				{Stage: "Finding", Refs: []Ref{at}, What: "Rule " + KindHighRisk + " reports a held action rated as high risk that no other finding rests on."},
 			}
+			f.Headline, f.Support, f.Key = "A high-risk action was attempted", what, at
 			b.findings = append(b.findings, f)
 		}
 	}
