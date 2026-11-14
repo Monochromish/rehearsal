@@ -487,10 +487,12 @@ could simply be signed again with a new key.
 The page's "Record verified" line recomputes the chain on each read. It
 doesn't check the signature, which is made after the page's last update.
 
-`rehearse export` blanks the values of your own details in the first
-entry, so that line's `data` no longer matches its `hash`. The other choice
-was to export nothing redacted, and a log system is the wrong place for
-your git email.
+`rehearse export` prints every entry byte for byte as it was hashed, so
+the chain can be recomputed from the export alone. That includes the first
+entry, which holds the values of your own details that were watched for
+(git name and email, username, computer name). An export that blanked them
+could not be checked, and a record that can't be checked is not worth
+exporting.
 
 ## Attestations
 

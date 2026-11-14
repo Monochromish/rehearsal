@@ -217,40 +217,18 @@ func exportSession(w io.Writer, name string) (err error) {
 	}
 	out := bufio.NewWriter(w)
 	enc := json.NewEncoder(out)
+	// data must leave byte for byte as it was hashed
+	enc.SetEscapeHTML(false)
 	for _, ev := range evs {
-		data, err := exportData(ev)
-		if err != nil {
-			return err
-		}
 		line := exportLine{
 			Session: filepath.Base(dir), Seq: ev.Seq, Time: ev.Time.Format(time.RFC3339Nano),
-			Type: ev.Type, Data: data, Prev: ev.Prev, Hash: ev.Hash,
+			Type: ev.Type, Data: ev.Data, Prev: ev.Prev, Hash: ev.Hash,
 		}
 		if err := enc.Encode(line); err != nil {
 			return fmt.Errorf("write event %d: %w", ev.Seq, err)
 		}
 	}
 	return out.Flush()
-}
-
-// exportData is an event's data as it leaves the machine. The log never
-// holds bodies, headers or secret values. The one thing it does hold that
-// is the user's own is the values being watched for, in the first event,
-// and those are left out here: the label says what each one was.
-func exportData(ev events.Event) (json.RawMessage, error) {
-	if ev.Type != events.TypeSessionStarted {
-		return ev.Data, nil
-	}
-	var started events.SessionStarted
-	if err := json.Unmarshal(ev.Data, &started); err != nil {
-		return nil, fmt.Errorf("event %d is not readable: %w", ev.Seq, err)
-	}
-	for i := range started.Identifiers {
-		if started.Identifiers[i].Kind == events.KindReal {
-			started.Identifiers[i].Value = ""
-		}
-	}
-	return json.Marshal(started)
 }
 
 func attestSession(w io.Writer, name, out string) (err error) {

@@ -113,12 +113,15 @@ These names are stable. New event types and new fields inside `data` may
 appear in later versions; existing ones won't be renamed.
 
 The log never holds request bodies, headers, cookies or the values of
-secrets, so there is nothing of that kind to remove. One thing is removed:
-in the first entry (`session_started`), the values of your own details that
-were being watched for (git name and email, username, computer name) are
-blanked, and their labels stay. Because of that, the first line's `data` is
-not what its `hash` was computed over. Every other line is exactly what was
-hashed.
+secrets, so there is nothing of that kind to remove. Every line's `data` is
+byte for byte what its `hash` was computed over, so the chain can be
+recomputed from the export alone: `hash` is the SHA-256 of `seq`, `time`,
+`type`, `prev` and `data`, joined by newlines.
+
+The first entry (`session_started`) holds the values of your own details
+that were being watched for: git name and email, username and computer
+name. They are in the export too. Keep that in mind before sending it
+anywhere.
 
 The event types are `session_started`, `request`, `response`,
 `identifier_seen`, `outside_content`, `first_input`, `model_usage`,

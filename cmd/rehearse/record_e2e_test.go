@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"crypto/ed25519"
+	"crypto/sha256"
 	"crypto/x509"
 	"database/sql"
 	"encoding/base64"
@@ -11,6 +12,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -155,7 +157,7 @@ func TestRecordedSessionVerifiesAndTamperingIsNamed(t *testing.T) {
 	}
 }
 
-func TestExportIsOneEventPerLineWithoutTheUsersOwnValues(t *testing.T) {
+func TestExportIsOneEventPerLineExactlyAsHashed(t *testing.T) {
 	r := recordSession(t)
 	out, code := r.run("export", "--format", "jsonl")
 	if code != 0 {
@@ -189,8 +191,8 @@ func TestExportIsOneEventPerLineWithoutTheUsersOwnValues(t *testing.T) {
 		}
 	}
 
-	// The user's own values that the session watched for are in the log,
-	// and must not be in what is exported. Their labels stay.
+	// Every line carries exactly what was hashed, so the chain can be
+	// recomputed from the export alone.
 	log, err := events.OpenExisting(filepath.Join(r.sessionDir(), "events.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -202,36 +204,30 @@ func TestExportIsOneEventPerLineWithoutTheUsersOwnValues(t *testing.T) {
 	if err := log.Close(); err != nil {
 		t.Fatal(err)
 	}
-	var inLog, inExport events.SessionStarted
-	if err := json.Unmarshal(stored[0].Data, &inLog); err != nil {
-		t.Fatal(err)
+	if len(stored) != len(lines) {
+		t.Fatalf("export has %d lines and the log has %d entries", len(lines), len(stored))
 	}
-	if err := json.Unmarshal(lines[0]["data"], &inExport); err != nil {
-		t.Fatal(err)
-	}
-	own := 0
-	for i, id := range inLog.Identifiers {
-		got := inExport.Identifiers[i]
-		if got.Label != id.Label || got.ID != id.ID {
-			t.Errorf("export changed identifier %d from %+v to %+v", i, id, got)
+	prev := events.ChainStart
+	for i, ev := range stored {
+		line := lines[i]
+		if !bytes.Equal(line["data"], ev.Data) {
+			t.Errorf("line %d: data is not byte for byte what the log holds\n got %s\nwant %s", i+1, line["data"], ev.Data)
 		}
-		switch id.Kind {
-		case events.KindReal:
-			own++
-			if id.Value == "" {
-				t.Fatalf("the log holds no value for %q, so this test proves nothing", id.Label)
-			}
-			if got.Value != "" {
-				t.Errorf("export contains the user's own value for %q", id.Label)
-			}
-		case events.KindCanary:
-			if got.Value != id.Value {
-				t.Errorf("export lost the planted value for %q", id.Label)
+		var seq int64
+		var at, typ, before, hash string
+		for field, into := range map[string]any{"seq": &seq, "time": &at, "type": &typ, "prev": &before, "hash": &hash} {
+			if err := json.Unmarshal(line[field], into); err != nil {
+				t.Fatalf("line %d, field %s: %v", i+1, field, err)
 			}
 		}
-	}
-	if own == 0 {
-		t.Fatal("the session watched for none of the user's own details, so this test proves nothing")
+		if before != prev {
+			t.Errorf("line %d: prev is %s, want the hash of the line before, %s", i+1, before, prev)
+		}
+		sum := sha256.Sum256(fmt.Appendf(nil, "%d\n%s\n%s\n%s\n%s", seq, at, typ, before, line["data"]))
+		if hex.EncodeToString(sum[:]) != hash {
+			t.Errorf("line %d: the hash recomputed from the exported fields is not the one exported", i+1)
+		}
+		prev = hash
 	}
 	if out, code := r.run("export", "--format", "csv"); code == 0 {
 		t.Errorf("export accepted a format it does not have:\n%s", out)
