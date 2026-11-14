@@ -10,11 +10,6 @@ import (
 	"rehearsal/internal/sandbox"
 )
 
-// changesFile is the session's diff, kept in its folder. The log says
-// that the files changed and by how much; what they changed to is the
-// project's own text and stays out of it.
-const changesFile = "changes.diff"
-
 // sessionChanges records the working tree before the agent starts, and
 // works out what changed once it has exited.
 type sessionChanges struct {
@@ -54,6 +49,16 @@ func (c *sessionChanges) finish(log *events.Log, box *sandbox.Box) error {
 	return err
 }
 
+// review is the session's changes sorted for reading, as the log and the
+// session's folder have them now.
+func (c *sessionChanges) review(log *events.Log) (changes.Review, error) {
+	l, err := current(log)
+	if err != nil {
+		return changes.Review{}, err
+	}
+	return changes.Load(c.sessionDir, l.Changes)
+}
+
 func (c *sessionChanges) capture(ev *events.ChangesCaptured, box *sandbox.Box) error {
 	var err error
 	if box == nil {
@@ -76,7 +81,9 @@ func (c *sessionChanges) capture(ev *events.ChangesCaptured, box *sandbox.Box) e
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(c.sessionDir, changesFile), []byte(patch), 0o600); err != nil {
+	// The log says that files changed and by how much. What they changed
+	// to is the project's own text, and goes in the session's folder.
+	if err := os.WriteFile(filepath.Join(c.sessionDir, changes.File), []byte(patch), 0o600); err != nil {
 		return err
 	}
 	ev.Truncated = truncated

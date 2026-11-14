@@ -333,6 +333,24 @@ func (l Ledger) Markdown() string {
 		}
 	}
 
+	if c := l.Changes; c != nil {
+		b.WriteString("\n## What changed in the project\n\n")
+		switch {
+		case !c.InRepo:
+			b.WriteString("The working folder is not in a git repository, so the session's changes to it were not recorded.\n")
+		case c.Problem != "":
+			fmt.Fprintf(&b, "The changes could not be recorded: %s\n", c.Problem)
+		case c.Files == 0:
+			b.WriteString("No file in the project changed.\n")
+		default:
+			fmt.Fprintf(&b, "%s changed: %s added and %s removed. The diff is `changes.diff`, beside this report.\n",
+				plural(c.Files, "file"), plural(c.Added, "line"), plural(c.Removed, "line"))
+			if c.Truncated {
+				b.WriteString("It was too long to keep whole, and is cut short.\n")
+			}
+		}
+	}
+
 	b.WriteString("\n## Held actions\n\n")
 	if len(l.Actions) == 0 {
 		b.WriteString("Nothing was held.\n")

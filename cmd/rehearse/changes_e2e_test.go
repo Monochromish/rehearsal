@@ -1,13 +1,18 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
+	"io"
 	"io/fs"
+	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
+	"rehearsal/internal/changes"
 	"rehearsal/internal/ledger"
 )
 
@@ -118,5 +123,75 @@ func TestSandboxedChangesAreCapturedFromTheLayer(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(work, "new.txt")); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("new.txt is in the real project: %v", err)
+	}
+}
+
+// While a decision is waiting, the page can ask what changed: the parts,
+// sorted, and the text of any one of them.
+func TestChangesAreServedSortedWhileADecisionWaits(t *testing.T) {
+	needCurl(t)
+	work, _ := repo(t)
+	srv := newUploads(t)
+	s := start(t, work, `printf 'package main\n\nfunc main() {}\n' > main.go && echo 'More words.' >> README.md && `+
+		`printf 'token = "ghp_0123456789abcdefghij0123456789abcdef"\n' > notes.py && curl -sS -o /dev/null -d x=1 `+srv.address()+`/upload`)
+	s.waitFor(ledger.PhaseDeciding)
+
+	var review changes.Review
+	getJSON(t, s.url+"/api/changes", &review)
+	if !review.Captured || !review.InRepo || review.Problem != "" || len(review.Parts) != 3 {
+		t.Fatalf("review = %+v, want three parts captured in a repository", review)
+	}
+	got := map[string]string{}
+	var order []string
+	for _, p := range review.Parts {
+		got[p.Path] = string(p.Level) + ": " + p.Reason
+		order = append(order, string(p.Level))
+		if p.Text != "" {
+			t.Errorf("the list of parts carries the text of %s", p.Path)
+		}
+	}
+	want := map[string]string{"main.go": "read: new file", "notes.py": "read: adds what looks like a credential", "README.md": "skim: documentation"}
+	if !reflect.DeepEqual(got, want) || order[2] != "skim" {
+		t.Errorf("parts = %v in the order %v\nwant %v with the one to skim last", got, order, want)
+	}
+	for _, p := range review.Parts {
+		status, text := getText(t, s.url+"/api/change?id="+p.ID)
+		if status != http.StatusOK || !strings.HasPrefix(text, "@@ ") {
+			t.Errorf("%s: status %d, text %q", p.Path, status, text)
+		}
+		if strings.Contains(text, "ghp_0123456789") {
+			t.Errorf("the text of %s shows a credential:\n%s", p.Path, text)
+		}
+	}
+	if status, _ := getText(t, s.url+"/api/change?id=c99"); status != http.StatusNotFound {
+		t.Errorf("a part that does not exist answered %d, want 404", status)
+	}
+	if status := s.decide(`{"decision":"discard"}`); status != http.StatusAccepted {
+		t.Fatalf("discard answered with %d", status)
+	}
+	s.finish()
+}
+
+func getText(t *testing.T, address string) (int, string) {
+	t.Helper()
+	res, err := http.Get(address)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := io.ReadAll(res.Body)
+	if cerr := res.Body.Close(); err != nil || cerr != nil {
+		t.Fatal(err, cerr)
+	}
+	return res.StatusCode, string(body)
+}
+
+func getJSON(t *testing.T, address string, into any) {
+	t.Helper()
+	status, body := getText(t, address)
+	if status != http.StatusOK {
+		t.Fatalf("%s answered %d: %s", address, status, body)
+	}
+	if err := json.Unmarshal([]byte(body), into); err != nil {
+		t.Fatalf("%s: %v\n%s", address, err, body)
 	}
 }

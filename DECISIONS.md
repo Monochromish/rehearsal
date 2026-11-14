@@ -873,3 +873,44 @@ not any of it is later allowed.
 Outside a git repository nothing is captured, and the session says so.
 User settings that change how git shows a diff (an outside diff program,
 text conversion) are switched off for this, so the diff is what is on disk.
+
+## Sorting the changes
+
+The session's diff is split into parts: one for each hunk of a file that
+was changed, and the whole file when it is new, deleted, renamed or binary.
+Each part gets one of three levels by rules alone, with no model:
+
+- Mechanical, shown folded: white space only, a move with nothing else
+  changed, lockfiles, generated files, vendored folders.
+- Skim: documentation, comments only, a new test file, editor and formatter
+  settings.
+- Read: everything else.
+
+The rules set a minimum. Nothing in them is a reason to read less than
+"read", only reasons that a part may be read less carefully, and each of
+those is narrow on purpose:
+
+- "White space only" compares the removed and added lines with white space
+  taken out, except inside quoted text, where it is part of a value. It is
+  never applied to Python, YAML, Makefiles or the other languages where the
+  space at the start of a line carries meaning.
+- "Comments only" needs every changed line to be a comment in a language
+  the rules know. A comment that a compiler or checker acts on
+  (`//go:build`, `// @ts-ignore`, `# noqa`, a `#!` line) is read.
+- A renamed file is as demanding as the most demanding change made to it on
+  the way. Moved and one character of logic changed is "read".
+
+Some things are always read whatever else is true of them: any change to a
+test that already existed (said as "removes an assertion", "deletes a
+test", "marks a test skipped" or "changes an assertion" when the rules can
+tell), dependency files, CI configuration, the paths the sandbox calls
+sensitive, database migrations, a file whose name suggests secrets, and any
+added line that looks like a credential. These are checked before the
+rules that lower a level, so a credential pasted into a guide is read.
+
+The test for a weakened assertion is crude: it counts lines that look like
+assertions on each side of the hunk. It can't tell a weaker assertion from
+a stronger one, so both are read, with the reason "changes an assertion".
+
+Each part carries its reason in a few words. A person who disagrees with a
+level can see what it rests on.

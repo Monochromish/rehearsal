@@ -19,8 +19,10 @@ import (
 	"sync"
 	"time"
 
+	"rehearsal/internal/changes"
 	"rehearsal/internal/events"
 	"rehearsal/internal/ledger"
+	"rehearsal/internal/redact"
 )
 
 type Server struct {
@@ -33,8 +35,57 @@ type Server struct {
 	origins   []string
 	decisions chan Decision
 
-	mu    sync.Mutex
-	diffs func(actionID string) (string, error)
+	mu      sync.Mutex
+	diffs   func(actionID string) (string, error)
+	changes func() (changes.Review, error)
+}
+
+// ShowChanges sets where the session's sorted changes come from.
+func (s *Server) ShowChanges(review func() (changes.Review, error)) {
+	s.mu.Lock()
+	s.changes = review
+	s.mu.Unlock()
+}
+
+// review is the session's changes, or an empty review when nothing
+// supplies them.
+func (s *Server) review() (changes.Review, error) {
+	s.mu.Lock()
+	review := s.changes
+	s.mu.Unlock()
+	if review == nil {
+		return changes.Review{Parts: []changes.Part{}}, nil
+	}
+	return review()
+}
+
+// handleChanges lists the parts of what changed in the project, those
+// that need reading first. The text of a part is asked for on its own.
+func (s *Server) handleChanges(w http.ResponseWriter, _ *http.Request) {
+	r, err := s.review()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, r)
+}
+
+// handleChange returns the text of one part, with anything that looks
+// like a credential hidden.
+func (s *Server) handleChange(w http.ResponseWriter, req *http.Request) {
+	r, err := s.review()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	part, ok := r.Part(req.URL.Query().Get("id"))
+	if !ok {
+		http.Error(w, "this session has no such change", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	_, _ = io.WriteString(w, redact.Text(part.Text)) // fails only when the browser has gone away
 }
 
 // ShowDiffs sets where the text of a held file change comes from.
@@ -98,6 +149,8 @@ func Start(log *events.Log, ui fs.FS, port int) (*Server, error) {
 	mux.HandleFunc("GET /api/held", s.handleHeld)
 	mux.HandleFunc("POST /api/apply", s.handleApply)
 	mux.HandleFunc("GET /api/diff", s.handleDiff)
+	mux.HandleFunc("GET /api/changes", s.handleChanges)
+	mux.HandleFunc("GET /api/change", s.handleChange)
 	if _, err := fs.Stat(ui, "index.html"); err == nil {
 		mux.Handle("GET /", http.FileServerFS(ui))
 	} else {

@@ -26,6 +26,7 @@ import (
 
 	"rehearsal/handlers"
 	"rehearsal/internal/apply"
+	"rehearsal/internal/changes"
 	"rehearsal/internal/events"
 	"rehearsal/internal/hold"
 	"rehearsal/internal/ident"
@@ -407,6 +408,7 @@ func rehearse(opts options, command []string) (exitCode int, err error) {
 	}
 
 	changed := startChanges(workDir, sessionDir)
+	web.ShowChanges(func() (changes.Review, error) { return changed.review(log) })
 	exitCode, err = run.Command(command, env, func() {
 		// a failed write here costs one line of the report, not the session
 		_, _ = log.Append(events.TypeFirstInput, events.FirstInput{})
