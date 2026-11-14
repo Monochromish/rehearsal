@@ -482,12 +482,13 @@ function parseReport(value: unknown): Report {
   }
 }
 
-function parseReview(value: unknown, what: string): Review {
+function parseReview(value: unknown, what: string, home: string): Review {
   const from = fields(value, what)
   return {
-    summary: text(from, 'summary', what),
+    // the reviewer may quote a path it was shown
+    summary: tilde(text(from, 'summary', what), home),
     risk: oneOf(from, 'risk', risks, what),
-    concern: text(from, 'concern', what),
+    concern: tilde(text(from, 'concern', what), home),
     source: oneOf(from, 'source', reviewSources, what),
     note: maybeText(from, 'note', what),
   }
@@ -559,7 +560,7 @@ function parseAction(value: unknown, what: string, home = ''): HeldAction {
     provenance: from['provenance'] === undefined ? null : parseProvenance(from['provenance'], `${what}.provenance`),
     outsideSources: maybeWords(from, 'outside_sources', what),
     file,
-    review: from['review'] === null ? null : parseReview(from['review'], `${what}.review`),
+    review: from['review'] === null ? null : parseReview(from['review'], `${what}.review`, home),
     decision: oneOf(from, 'decision', decisions, what),
     outcome: oneOf(from, 'outcome', outcomes, what),
     detail: text(from, 'detail', what),

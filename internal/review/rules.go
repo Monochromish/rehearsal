@@ -4,7 +4,6 @@ package review
 
 import (
 	"fmt"
-	"net"
 	"path"
 	"slices"
 	"strings"
@@ -142,9 +141,6 @@ func ByRules(a events.ActionHeld) Verdict {
 			v.Summary = fmt.Sprintf("Send %d bytes of data to %s (%s %s).", a.RequestBytes, dest, a.Method, a.Path)
 		}
 		v.Concern = "The server will act on this request, and that may not be possible to undo."
-		if isThisMachine(a.Host) {
-			v.Concern = "It goes to a program on this computer, not out to the internet, but that program will still act on it."
-		}
 	}
 	if a.Kind == events.ActionHTTP && !slices.Contains([]string{"POST", "PUT", "PATCH", "DELETE"}, a.Method) {
 		v.Summary = fmt.Sprintf("Fetch %s from %s.", a.Path, dest)
@@ -196,16 +192,4 @@ func fileChange(f events.FileChange, secretFiles []string) (summary, concern str
 		concern = f.Sensitive
 	}
 	return summary, concern
-}
-
-func isThisMachine(hostport string) bool {
-	host, _, err := net.SplitHostPort(hostport)
-	if err != nil {
-		host = hostport // no port
-	}
-	if strings.EqualFold(host, "localhost") {
-		return true
-	}
-	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
 }

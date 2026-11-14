@@ -382,3 +382,20 @@ func TestDefaultGateway(t *testing.T) {
 		t.Error("defaultGateway found a gateway in a table with no default route")
 	}
 }
+
+// The built-in sentences must not judge a destination by its address: a
+// server on this machine can keep or pass on what it is sent like any other.
+func TestByRulesDoesNotJudgeADestinationByItsAddress(t *testing.T) {
+	for _, method := range []string{"POST", "GET", "DELETE"} {
+		for _, host := range []string{"localhost:7912", "127.0.0.1:7912", "attacker-inbox.localhost:7912", "10.0.0.5:8080"} {
+			near := ByRules(events.ActionHeld{Kind: events.ActionHTTP, Method: method, Host: host, Path: "/collect", Destination: host, Deletes: method == "DELETE"})
+			far := ByRules(events.ActionHeld{Kind: events.ActionHTTP, Method: method, Host: "tracker.test", Path: "/collect", Destination: "tracker.test", Deletes: method == "DELETE"})
+			if near.Concern != far.Concern || near.Risk != far.Risk {
+				t.Errorf("%s to %s: %s, %q; the same request to tracker.test: %s, %q", method, host, near.Risk, near.Concern, far.Risk, far.Concern)
+			}
+			if strings.ReplaceAll(near.Summary, host, "tracker.test") != far.Summary {
+				t.Errorf("%s to %s: summary %q differs from tracker.test's %q in more than the address", method, host, near.Summary, far.Summary)
+			}
+		}
+	}
+}
