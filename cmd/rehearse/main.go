@@ -91,6 +91,8 @@ type options struct {
 	sandbox      bool
 	sandboxWrite []string
 
+	stopLeftovers bool
+
 	orgPolicy string
 }
 
@@ -146,6 +148,7 @@ func main() {
 	f.BoolVar(&opts.sandbox, "sandbox", false, "experimental: keep the agent's file changes in a layer over the project until you allow them, and cut off any network that does not go through Rehearsal")
 	f.StringSliceVar(&opts.sandboxWrite, "sandbox-write", nil, "with --sandbox: another path outside the project the agent may write to for real")
 	f.StringVar(&opts.orgPolicy, "org-policy", os.Getenv(envOrgPolicy), "the organisation's policy file, which the project's own can only add to (env "+envOrgPolicy+")")
+	f.BoolVar(&opts.stopLeftovers, "stop-leftovers", false, "when the agent exits, stop every process it started that is still running")
 
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "rehearse:", err)
@@ -377,11 +380,25 @@ func rehearse(opts options, command []string) (exitCode int, err error) {
 	})
 
 	fmt.Fprintf(os.Stderr, "rehearse: watching. Ledger page: %s\n", web.URL)
+	// whether the page in a browser is where this session is shown
+	onPage := false
 	if !opts.noOpen {
-		if err := openWindow(web.URL); err != nil {
+		inApp, err := openWindow(web.URL)
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "rehearse: could not open a window (%v). Open the address above yourself.\n", err)
 		}
+		onPage = !inApp
 	}
+
+	// Every process the agent starts is followed from here on, so that
+	// what is still running when it exits can be listed. In a sandbox they
+	// are followed from out here like any others.
+	left := followLeftovers(log, matcher, keep)
+	if opts.sandbox {
+		left.tracker.Wrapped()
+	}
+	env = append(env, left.tracker.Env())
+	web.ShowLeftovers(left)
 
 	var box *sandbox.Box
 	var files *fileChanges
@@ -421,7 +438,8 @@ func rehearse(opts options, command []string) (exitCode int, err error) {
 	exitCode, err = run.Command(command, env, func() {
 		// a failed write here costs one line of the report, not the session
 		_, _ = log.Append(events.TypeFirstInput, events.FirstInput{})
-	})
+	}, left.tracker.Follow)
+	cleanup("list what the agent left running", func() error { return left.list(opts.stopLeftovers) })
 	cleanup("record what changed in the project", func() error { return changed.finish(log, box) })
 	// The local model reads the changes while the user decides. It has a
 	// budget of its own, and the record is not closed until it is done.
@@ -476,6 +494,7 @@ func rehearse(opts options, command []string) (exitCode int, err error) {
 	if files != nil {
 		cleanup("clear the sandbox", files.finish)
 	}
+	cleanup("say what the agent left running", func() error { return left.finish(onPage, web.URL) })
 	// After the decision: in a sandbox the agent's commits are file changes
 	// until they are applied, and only then are they in the repository.
 	if _, aerr := log.Append(events.TypeCommitsCreated, commitsSince(workDir, refsBefore, inRepo)); aerr != nil {
@@ -866,30 +885,31 @@ func openApp(app, url string) error {
 
 // openWindow shows the session: in the app window when one is named, and
 // otherwise as a standalone Edge window when running inside WSL. Anywhere
-// else it does nothing: the address is already printed.
-func openWindow(url string) error {
+// else it does nothing: the address is already printed. inApp says that
+// the app window is what was opened.
+func openWindow(url string) (inApp bool, err error) {
 	if app := os.Getenv(envApp); app != "" {
 		err := openApp(app, url)
 		if err == nil {
-			return nil
+			return true, nil
 		}
 		fmt.Fprintf(os.Stderr, "rehearse: could not open the app window named by %s (%v). Opening the page in a browser instead.\n", envApp, err)
 	}
 	version, err := os.ReadFile("/proc/version")
 	if errors.Is(err, os.ErrNotExist) {
-		return nil // not Linux, so not WSL
+		return false, nil // not Linux, so not WSL
 	}
 	if err != nil {
-		return err
+		return false, err
 	}
 	if !strings.Contains(strings.ToLower(string(version)), "microsoft") {
-		return nil
+		return false, nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "cmd.exe", "/c", "start", "msedge", "--app="+url)
 	cmd.Dir = "/mnt/c" // cmd.exe complains when started from a Linux path
-	return cmd.Run()
+	return false, cmd.Run()
 }
 
 func count(n int, word string) string {

@@ -45,7 +45,12 @@ export type EventType =
   | 'rule_offered'
   | 'rule_added'
   | 'package_checked'
+  | 'process_left'
+  | 'process_stopped'
+// what became of a process the agent left running
+export type ProcessStatus = 'running' | 'stopped' | 'forced' | 'gone' | 'failed'
 
+const processStatuses: readonly ProcessStatus[] = ['running', 'stopped', 'forced', 'gone', 'failed']
 const kinds: readonly Kind[] = ['real', 'canary', 'secret']
 const categories: readonly Category[] = ['provider', 'other']
 const wheres: readonly Where[] = ['address', 'header', 'body']
@@ -86,6 +91,8 @@ const eventTypes: readonly EventType[] = [
   'rule_offered',
   'rule_added',
   'package_checked',
+  'process_left',
+  'process_stopped',
 ]
 
 export interface Identifier {
@@ -264,6 +271,28 @@ export interface HeldAction {
 export interface Held {
   phase: Phase
   actions: HeldAction[]
+}
+
+// A process the agent started that was still running when it exited.
+export interface LeftProcess {
+  id: string
+  pid: number
+  // the command line it was started with, credentials hidden
+  command: string
+  started: string
+  seconds: number
+  // TCP ports it listens on
+  ports: number[]
+  status: ProcessStatus
+  detail: string
+}
+
+export interface Leftovers {
+  // false while the agent is still running
+  listed: boolean
+  // whether a request to stop something would be acted on now
+  open: boolean
+  processes: LeftProcess[]
 }
 
 export interface LogEvent {
@@ -588,6 +617,29 @@ function parseHeld(value: unknown): Held {
   }
 }
 
+function parseProcess(value: unknown, what: string): LeftProcess {
+  const from = fields(value, what)
+  return {
+    id: text(from, 'id', what),
+    pid: count(from, 'pid', what),
+    command: text(from, 'command', what),
+    started: text(from, 'started', what),
+    seconds: count(from, 'seconds', what),
+    ports: list(from, 'ports', what, (item, where) => count({ item }, 'item', where)),
+    status: oneOf(from, 'status', processStatuses, what),
+    detail: maybeText(from, 'detail', what),
+  }
+}
+
+function parseLeftovers(value: unknown): Leftovers {
+  const from = fields(value, 'leftovers')
+  return {
+    listed: flag(from, 'listed', 'leftovers'),
+    open: flag(from, 'open', 'leftovers'),
+    processes: list(from, 'processes', 'leftovers', parseProcess),
+  }
+}
+
 function parseLogEvent(value: unknown): LogEvent {
   const from = fields(value, 'event')
   const type = oneOf(from, 'type', eventTypes, 'event')
@@ -629,6 +681,25 @@ export async function getLedger(): Promise<Ledger> {
 
 export async function getHeld(): Promise<Held> {
   return fixture()?.held() ?? parseHeld(await get('/api/held', 'held actions'))
+}
+
+/** What the agent started that was still running when it exited. */
+export async function getLeftovers(): Promise<Leftovers> {
+  return fixture()?.leftovers() ?? parseLeftovers(await get('/api/leftovers', 'list of what is still running'))
+}
+
+/** Stops the listed processes with these IDs and leaves the rest running. */
+export async function stopLeftovers(ids: string[]): Promise<void> {
+  const scripted = fixture()
+  if (scripted !== null) return scripted.stop(ids)
+  const res = await fetch('/api/leftovers/stop', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ stop: ids }),
+  })
+  if (!res.ok) {
+    throw new Error(`the request was not accepted (${res.status}): ${(await res.text()).trim()}`)
+  }
 }
 
 /** The text of a held file change: a unified diff, or a folder's file names. */

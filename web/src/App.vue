@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { applyApproved, discardAll, getHeld, getLedger, subscribe } from './api'
-import type { Held, Ledger, LogEvent, Subscription } from './api'
+import { applyApproved, discardAll, getHeld, getLedger, getLeftovers, stopLeftovers, subscribe } from './api'
+import type { Held, Ledger, Leftovers, LogEvent, Subscription } from './api'
 import { statusSentence } from './present'
 import { palettes, systemTheme, watchSystemTheme } from './theme'
 import type { ThemeName } from './theme'
 import StatusHeading from './components/StatusHeading.vue'
 import UnusualList from './components/UnusualList.vue'
 import DecisionPanel from './components/DecisionPanel.vue'
+import StillRunning from './components/StillRunning.vue'
 import SessionReport from './components/SessionReport.vue'
 import ServerGroup from './components/ServerGroup.vue'
 import WatchList from './components/WatchList.vue'
@@ -17,6 +18,9 @@ const maxEvents = 2000
 
 const ledger = ref<Ledger | null>(null)
 const held = ref<Held | null>(null)
+// what the agent started that was still running when it exited
+const leftovers = ref<Leftovers>({ listed: false, open: false, processes: [] })
+const stopping = ref(false)
 const events = ref<LogEvent[]>([])
 const connected = ref(false)
 const ledgerProblem = ref('')
@@ -72,9 +76,10 @@ function describe(error: unknown): string {
 // Never rejects: a failure is shown on the page.
 async function refresh(): Promise<void> {
   try {
-    const [nextLedger, nextHeld] = await Promise.all([getLedger(), getHeld()])
+    const [nextLedger, nextHeld, nextLeftovers] = await Promise.all([getLedger(), getHeld(), getLeftovers()])
     ledger.value = nextLedger
     held.value = nextHeld
+    leftovers.value = nextLeftovers
     ledgerProblem.value = ''
   } catch (e: unknown) {
     ledgerProblem.value = `Could not read the session from Rehearsal: ${describe(e)}. Check that rehearse is still running in your terminal. If it has exited, the final record is in rehearsal-ledger.json.`
@@ -113,6 +118,20 @@ async function send(decision: () => Promise<void>): Promise<void> {
     decisionProblem.value = `Your decision did not reach Rehearsal, so nothing was done: ${describe(e)}. Try the button again, or press Ctrl+C in the terminal to discard everything.`
   }
   sending.value = false
+  await refresh()
+}
+
+// Never rejects: a choice that could not be delivered is shown on the
+// page and the button works again.
+async function stop(ids: string[]): Promise<void> {
+  stopping.value = true
+  decisionProblem.value = ''
+  try {
+    await stopLeftovers(ids)
+  } catch (e: unknown) {
+    decisionProblem.value = `Your choice of what to stop did not reach Rehearsal, so nothing was stopped: ${describe(e)}. Try the button again, or press Ctrl+C in the terminal to leave everything running.`
+  }
+  stopping.value = false
   await refresh()
 }
 
@@ -174,6 +193,14 @@ onUnmounted(() => {
           :policy="ledger.policy"
           @apply="(approve, rules) => void send(() => applyApproved(approve, rules))"
           @discard="void send(discardAll)"
+        />
+
+        <StillRunning
+          v-if="leftovers.processes.length > 0"
+          :leftovers="leftovers"
+          :agent="agent"
+          :busy="stopping"
+          @stop="(ids) => void stop(ids)"
         />
 
         <SessionReport

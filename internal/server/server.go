@@ -1,6 +1,6 @@
 // Package server serves the page and the local API behind it:
-// GET /api/ledger, GET /api/events, GET /api/held, GET /api/diff and
-// POST /api/apply.
+// GET /api/ledger, GET /api/events, GET /api/held, GET /api/diff,
+// POST /api/apply, GET /api/leftovers and POST /api/leftovers/stop.
 package server
 
 import (
@@ -23,6 +23,7 @@ import (
 	"rehearsal/internal/events"
 	"rehearsal/internal/investigate"
 	"rehearsal/internal/ledger"
+	"rehearsal/internal/leftover"
 	"rehearsal/internal/redact"
 )
 
@@ -45,6 +46,81 @@ type Server struct {
 	described            map[string]SessionInfo
 	// the local model that writes accounts of findings; nil for none
 	asker investigate.Asker
+	// what the agent left running; nil when that is not followed
+	leftovers Leftovers
+}
+
+// Leftovers is the processes the agent started that were still running
+// when it exited, and the means to stop them.
+type Leftovers interface {
+	List() leftover.List
+	// Stop ends the named processes and returns what became of each.
+	Stop(ids []string) ([]leftover.Process, error)
+}
+
+// ShowLeftovers sets where the list of what the agent left running comes
+// from.
+func (s *Server) ShowLeftovers(l Leftovers) {
+	s.mu.Lock()
+	s.leftovers = l
+	s.mu.Unlock()
+}
+
+// handleLeftovers lists what the agent left running. The list is empty,
+// and marked as not yet made, while the agent is still running.
+func (s *Server) handleLeftovers(w http.ResponseWriter, _ *http.Request) {
+	s.mu.Lock()
+	left := s.leftovers
+	s.mu.Unlock()
+	if left == nil {
+		writeJSON(w, leftover.List{Processes: []leftover.Process{}})
+		return
+	}
+	writeJSON(w, left.List())
+}
+
+// handleStopLeftovers stops the processes it is given, and only those:
+// each has to be on the list. Like a decision, it is accepted only as
+// JSON from this page. The answer says what became of each one.
+func (s *Server) handleStopLeftovers(w http.ResponseWriter, r *http.Request) {
+	if !slices.Contains(s.origins, r.Header.Get("Origin")) {
+		http.Error(w, "this request did not come from the Rehearsal page", http.StatusForbidden)
+		return
+	}
+	if mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type")); err != nil || mediaType != "application/json" {
+		http.Error(w, "the request must be sent as application/json", http.StatusUnsupportedMediaType)
+		return
+	}
+	var body struct {
+		Stop []string `json:"stop"`
+	}
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&body); err != nil {
+		http.Error(w, "unreadable request: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	s.mu.Lock()
+	left := s.leftovers
+	s.mu.Unlock()
+	if left == nil {
+		http.Error(w, "this session does not follow what the agent leaves running", http.StatusConflict)
+		return
+	}
+	stopped, err := left.Stop(body.Stop)
+	switch {
+	case errors.Is(err, leftover.ErrNotListed), errors.Is(err, leftover.ErrClosed):
+		http.Error(w, err.Error(), http.StatusConflict)
+	case err != nil && stopped == nil:
+		http.Error(w, err.Error(), http.StatusBadRequest)
+	case err != nil:
+		// the processes were dealt with, and that could not be recorded
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	default:
+		writeJSON(w, struct {
+			Processes []leftover.Process `json:"processes"`
+		}{stopped})
+	}
 }
 
 // ShowChanges sets where the session's sorted changes come from.
@@ -158,6 +234,8 @@ func Start(log *events.Log, ui fs.FS, port int) (*Server, error) {
 	mux.HandleFunc("GET /api/diff", s.handleDiff)
 	mux.HandleFunc("GET /api/changes", s.handleChanges)
 	mux.HandleFunc("GET /api/change", s.handleChange)
+	mux.HandleFunc("GET /api/leftovers", s.handleLeftovers)
+	mux.HandleFunc("POST /api/leftovers/stop", s.handleStopLeftovers)
 	mux.HandleFunc("GET /api/info", s.handleInfo)
 	mux.HandleFunc("GET /api/sessions", s.handleSessions)
 	mux.HandleFunc("GET /api/sessions/{name}/ledger", s.handleSessionLedger)

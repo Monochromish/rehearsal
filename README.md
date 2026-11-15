@@ -24,6 +24,8 @@ What it does today:
   does.
 - Sets what the agent's last message claimed against the commands it was
   seen to run.
+- Lists the processes the agent started that are still running when it
+  exits, and stops the ones you tick.
 - Lists every server the agent contacted and which of your details, planted
   values and secrets reached each one, and says where an address came from
   when the agent learned it from a page it fetched and not from you.
@@ -201,6 +203,66 @@ Where to see it: `rehearsal-report.md` has the totals, `rehearse review`
 prints the same sorting for any range of commits, the app window lists the
 parts, and `GET /api/changes` serves them. The page in the browser does not
 show changes.
+
+## What the agent left running
+
+An agent starts things and does not always stop them: a development
+server, a watcher, a database. `rehearse` starts the agent, so it follows
+every process that comes from it from the first moment. When the agent
+exits it lists the ones still running: the command line each was started
+with, how long it has run, and any TCP port it listens on. Each is one
+entry in the session's record.
+
+A process is on the list because of where it came from, never because of
+its name. Either it was seen as a child of the agent, at any remove, or it
+carries a value in its environment that was made for this session and
+given only to the agent. A process that has left the agent's process group
+or session (`setsid`, `nohup`, a server that forks twice) is still found.
+Another copy of the same program that you started yourself is not on the
+list, and nothing that is not on the list can be stopped.
+
+On the page the list is the group "Still running": one row for each
+process with a tick box, all ticked to begin with, and one button that
+says what it will do ("Stop 2, leave 1 running"). A ticked process is sent
+the polite signal (`SIGTERM`), and the forced one (`SIGKILL`) if it is
+still there 3 seconds later. Its row then says what happened: stopped,
+stopped by force, or already gone, when it had exited by itself and
+nothing was sent to it. When nothing was held, `rehearse` waits for this
+choice before it exits. Ctrl+C in the terminal leaves everything running.
+
+With `--no-open`, or when the app window is in use, nothing is asked. The
+list is printed when `rehearse` exits and everything is left running:
+
+```
+rehearse: what the agent started that was still running when it exited:
+  left running: process 4312, running for 4m 10s, listening on port 8000: python3 -m http.server 8000
+Nothing was stopped. Run with --stop-leftovers to stop everything the agent leaves running.
+```
+
+`--stop-leftovers` stops everything on the list as soon as the agent
+exits, however the session is shown.
+
+With `--sandbox` it is the same. A process the agent leaves inside the
+sandbox goes on running there after the agent exits, and after `rehearse`
+does: it has no network by then, and it writes to a layer that has been
+cleared. It is followed, listed and stopped from outside the sandbox. The
+sandbox's own first process, which stays for as long as anything inside it
+runs, is not on the list.
+
+What it doesn't do:
+
+- A process counts as left running when it is still there half a second
+  after the agent exits. One that was on its way out may be listed and
+  then shown as already gone.
+- Processes are looked for every 300 milliseconds. One that both starts
+  with an emptied environment and loses its parent between two looks is
+  not found. It is missed, never mistaken for something else.
+- Every process is a row of its own. A server and the shell that started
+  it are two rows, and each is signalled by itself.
+- Only TCP ports in the listening state are shown.
+- A command line is kept the way a held command is, with anything that
+  looks like a credential hidden, and is cut at 300 characters.
+- It reads `/proc`, so it works on Linux only.
 
 ## The session report
 
@@ -860,6 +922,8 @@ reads nothing from disk:
 | `/api/sessions/NAME/ledger`, `changes`, `change`, `entries`, `record` | The same for a past session, read-only. |
 | `/api/investigate`, `/api/investigate/ask` | The investigation of one session or all, and a question put to it. |
 | `/api/apply` | The decision, accepted once the agent has exited. |
+| `/api/leftovers` | What the agent started that is still running, once it has exited. |
+| `/api/leftovers/stop` | Stops the listed processes it is given (`{"stop": ["p1"]}`) and answers with what became of each. |
 
 The window is written to cut down what has to be read before deciding.
 The sentence at the top names the most serious thing that is waiting
@@ -947,6 +1011,7 @@ On WSL the page opens in its own Edge window. Anywhere else, open the address
 | `--reviewer-timeout TIME` | How long to wait for the model on each action. Default `45s`. |
 | `--port N` | Serve the page on port `N` instead of any free port. |
 | `--no-open` | Don't open a window, just print the address. |
+| `--stop-leftovers` | When the agent exits, stop every process it started that is still running. |
 
 Options go before the agent command. Everything after it is passed to the
 agent untouched.
@@ -1041,8 +1106,14 @@ for it, and `rehearse` says so when it exits.
   command, not only the explanation.
 - Decisions are accepted only after the agent has exited and only from the
   Rehearsal page. Without `--sandbox`, a process the agent left running in
-  the background could still send one. Inside the sandbox the page can't be
+  the background could still send one, unless it has been stopped: see
+  "What the agent left running". Inside the sandbox the page can't be
   reached.
+- The list of what the agent left running has been run with shell scripts
+  standing in for an agent, and on the page in one such session. Inside
+  the sandbox it has been run with a `sleep` and nothing else, and no port
+  has been read there. It has not been run with a real agent, and the app
+  window does not show it.
 - A held request with a body over 32 MB is refused, not held.
 - Git and read-only `gh` commands use `POST` for reads, so they go through a
   second proxy that records but never holds. Other `npm` and unrecognised `gh`
@@ -1169,6 +1240,7 @@ REHEARSAL_LIVE_MODEL_URL=http://192.168.96.1:11434/v1 go test -run TestLive ./in
 | `docs` | The record and attestation formats |
 | `internal/server` | The local API and the page |
 | `internal/run` | Launching the agent with a pseudo-terminal |
+| `internal/leftover` | Following the processes the agent starts, and stopping the ones left running |
 | `web` | The page (Vue 3, TypeScript, Vite) |
 | `spikes` | Throwaway feasibility tests |
 

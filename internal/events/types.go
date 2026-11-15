@@ -46,7 +46,35 @@ const (
 	TypeRuleAdded     Type = "rule_added"
 
 	TypePackageChecked Type = "package_checked"
+
+	TypeProcessLeft    Type = "process_left"
+	TypeProcessStopped Type = "process_stopped"
 )
+
+// ProcessLeft is a process the agent started that was still running when
+// the agent exited. There is one entry for each.
+type ProcessLeft struct {
+	ID  string `json:"id"`
+	PID int    `json:"pid"`
+	// the command line it was started with, credentials hidden
+	Command string    `json:"command"`
+	Started time.Time `json:"started"`
+	// how long it had run when the agent exited
+	Seconds int64 `json:"seconds"`
+	// TCP ports it was listening on
+	Ports []int `json:"ports"`
+}
+
+// ProcessStopped is what became of a process someone asked to have
+// stopped: "stopped" when it exited on the polite signal, "forced" when
+// it took the forced one, "gone" when it had already exited by itself and
+// nothing was sent, "failed" when it could not be stopped.
+type ProcessStopped struct {
+	ID      string `json:"id"`
+	PID     int    `json:"pid"`
+	Outcome string `json:"outcome"`
+	Detail  string `json:"detail,omitempty"`
+}
 
 // PackageChecked records what a registry said about a package the agent
 // asked to install that the project had not installed before.

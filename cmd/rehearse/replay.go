@@ -262,7 +262,7 @@ func replayRecording(w io.Writer, path string, opts replayOptions) (err error) {
 		}()
 		fmt.Fprintf(os.Stderr, "rehearse: replaying %q. Nothing in a replay is real. Page: %s\n", rec.Name, web.URL)
 		if !opts.noOpen {
-			if oerr := openWindow(web.URL); oerr != nil {
+			if _, oerr := openWindow(web.URL); oerr != nil {
 				fmt.Fprintf(os.Stderr, "rehearse: could not open a window (%v). Open the address above yourself.\n", oerr)
 			}
 		}

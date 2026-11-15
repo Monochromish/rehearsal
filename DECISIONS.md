@@ -1213,3 +1213,74 @@ The words are read from the Anthropic Messages format only, like the
 commands and the token counts. A session with another provider, or with
 no readable conversation, has no such entry and is named by the program
 and the time as before.
+
+## What the agent left running
+
+`rehearse` starts the agent, which is the one fact that makes this
+possible: everything the agent starts can be traced back to a process
+`rehearse` knows.
+
+**A process is its number and its start time.** A number alone is reused
+by the system, and a name says nothing about where a process came from.
+The pair is read from `/proc` and is the only identity used, for listing
+and for stopping.
+
+**Two kinds of evidence, either one enough.** Every 300 milliseconds the
+process table is read, and any process whose parent is already followed
+is followed too. That finds a child however it detaches, as long as it is
+seen once while its parent lives. The agent is also started with a
+variable in its environment whose value is made for the session. Children
+inherit it, so a server that forks twice and is adopted by the system
+within a few milliseconds is still recognised. Neither is asked to do the
+other's job: descent covers a child started with an empty environment, and
+the mark covers a child that loses its parent at once.
+
+**It errs towards missing.** A process is listed only on positive
+evidence. What escapes both kinds of evidence is not listed and so cannot
+be stopped. Making `rehearse` the adopter of orphaned processes would
+close that gap, but then its own children (the app window, git) would
+have to be told apart from the agent's, and a mistake there stops
+something the agent did not start. That trade was not taken.
+
+**Stopping checks again.** A handle on the process is taken first, and
+only then is its start time compared with the one on the list. The signal
+goes through the handle, so a process that exited and whose number was
+given to something else is never signalled. One found to have exited is
+"already gone" and is sent nothing. The polite signal is `SIGTERM`. The
+forced one, `SIGKILL`, follows after 3 seconds, and the answer says which
+it took. Each process is signalled alone, not its group: the others in
+the group are on the list themselves if they came from the agent.
+
+**Half a second.** A pipeline the agent was running when it exited takes
+a moment to die. The list is made half a second after the agent exits, so
+that what is on it was left and not just slow.
+
+**Two entries in the record.** `process_left` for each process on the
+list, and `process_stopped` for each one somebody asked to have stopped,
+with what became of it. The command line is stored, which is more than
+the program name kept for the agent itself. It is treated as a held
+command's is: anything shaped like a credential is hidden, and a watched
+secret is replaced by its name.
+
+**When `rehearse` waits.** With the page open and nothing chosen yet,
+`rehearse` stays until the page says which to stop, since a list that
+disappears with the page server would be no use. With `--no-open` it
+prints and leaves everything running, and `--stop-leftovers` is the way
+to have them stopped without being asked. The app window does not show
+the list yet, so with it `rehearse` behaves as with `--no-open`. A wait
+for an answer the window cannot give would never end.
+
+**In the sandbox, from outside it.** The sandbox does not end when the
+agent does. Its first process waits for everything inside to exit, so a
+server the agent left keeps running in there, cut off from the network
+once `rehearse` has gone. Processes inside a sandbox have numbers out
+here too, so they are followed, listed and signalled from outside like
+any others, and nothing new runs inside. The sandbox's first process
+descends from what `rehearse` started and would otherwise be on the list.
+It is recognised by being process 1 of a process namespace directly
+inside this one, which the kernel reports, and left off.
+
+**The rows.** The group is a component of its own, drawn with the same
+rules as a held action's row and the decision's button and with no colour
+or size of its own. It is not the action row itself, because that row is
+built around a held action and its reviewer's sentence.

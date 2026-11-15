@@ -40,15 +40,20 @@ func ProxyEnv(proxyURL, caCertPath string) []string {
 //
 // onFirstInput is called once, when the first byte of the user's input is
 // passed on to the command. See WatchesInput for when that can be seen.
-func Command(command []string, extraEnv []string, onFirstInput func()) (int, error) {
+// onStart, when it is not nil, is called once with the command's process
+// number as soon as it has been started.
+func Command(command []string, extraEnv []string, onFirstInput func(), onStart func(pid int)) (int, error) {
 	cmd := exec.Command(command[0], command[1:]...)
 	cmd.Env = append(os.Environ(), extraEnv...)
+	if onStart == nil {
+		onStart = func(int) {}
+	}
 
 	var waitErr, ourErr error
 	if term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stdout.Fd())) {
-		waitErr, ourErr = runInPTY(cmd, onFirstInput)
+		waitErr, ourErr = runInPTY(cmd, onFirstInput, onStart)
 	} else {
-		waitErr, ourErr = runPlain(cmd, onFirstInput)
+		waitErr, ourErr = runPlain(cmd, onFirstInput, onStart)
 	}
 	if ourErr != nil {
 		return 1, ourErr
@@ -89,7 +94,7 @@ func (n *noting) Read(p []byte) (int, error) {
 	return c, err
 }
 
-func runPlain(cmd *exec.Cmd, onFirstInput func()) (waitErr, ourErr error) {
+func runPlain(cmd *exec.Cmd, onFirstInput func(), onStart func(pid int)) (waitErr, ourErr error) {
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	var stdin io.WriteCloser
 	if WatchesInput() {
@@ -106,6 +111,7 @@ func runPlain(cmd *exec.Cmd, onFirstInput func()) (waitErr, ourErr error) {
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("start %s: %w", cmd.Path, err)
 	}
+	onStart(cmd.Process.Pid)
 	if stdin != nil {
 		go func() {
 			// Both of these end with an error in the ordinary course of
@@ -120,11 +126,12 @@ func runPlain(cmd *exec.Cmd, onFirstInput func()) (waitErr, ourErr error) {
 	return cmd.Wait(), nil
 }
 
-func runInPTY(cmd *exec.Cmd, onFirstInput func()) (waitErr, ourErr error) {
+func runInPTY(cmd *exec.Cmd, onFirstInput func(), onStart func(pid int)) (waitErr, ourErr error) {
 	ptmx, err := pty.Start(cmd)
 	if err != nil {
 		return nil, fmt.Errorf("start %s in a terminal: %w", cmd.Path, err)
 	}
+	onStart(cmd.Process.Pid)
 	defer func() {
 		if err := ptmx.Close(); err != nil {
 			ourErr = errors.Join(ourErr, fmt.Errorf("close the command's terminal: %w", err))

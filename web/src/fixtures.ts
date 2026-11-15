@@ -1,7 +1,7 @@
 // Scripted sessions, shown with ?fixture=NAME in the address. They let
 // every state of the page be looked at without an agent or a model.
 
-import type { Held, HeldAction, Identifier, Ledger, LogEvent, Phase, Review, Risk, Server } from './api'
+import type { Held, HeldAction, Identifier, Ledger, LeftProcess, Leftovers, LogEvent, Phase, Review, Risk, Server } from './api'
 
 export interface FixtureSession {
   ledger(): Ledger
@@ -11,9 +11,12 @@ export interface FixtureSession {
   apply(approve: string[]): void
   // the text behind "Show changes" for a held file change
   diff(id: string): string
+  // what the agent left running, and stopping the ones with these IDs
+  leftovers(): Leftovers
+  stop(ids: string[]): void
 }
 
-export const fixtureNames = ['running', 'reviewing', 'deciding', 'thirty', 'finished', 'nothing', 'no-model', 'sandbox']
+export const fixtureNames = ['running', 'reviewing', 'deciding', 'thirty', 'finished', 'nothing', 'no-model', 'sandbox', 'leftovers']
 
 const username: Identifier = { id: 'os-username', kind: 'real', label: 'Your computer username', name: '', value: 'ada' }
 const paymentsKey: Identifier = { id: 'env-1', kind: 'secret', label: 'Value of PAYMENTS_API_KEY from .env', name: 'PAYMENTS_API_KEY', value: '' }
@@ -176,11 +179,22 @@ const sampleDiff = `--- a/src/checkout.ts
  }
 `
 
-function scripted(phase: Phase, actions: HeldAction[], extraServers: Server[] = []): FixtureSession {
+function scripted(phase: Phase, actions: HeldAction[], extraServers: Server[] = [], processes: LeftProcess[] = []): FixtureSession {
   let current = phase
   let list = actions
+  let left = processes
+  let chosen = false
   const all = [...servers, ...extraServers]
   return {
+    leftovers: () => ({
+      listed: current !== 'running',
+      open: current !== 'running' && !chosen && left.some((p) => p.status === 'running'),
+      processes: current === 'running' ? [] : left,
+    }),
+    stop: (ids) => {
+      left = left.map((p) => (ids.includes(p.id) && p.status === 'running' ? { ...p, status: p.id === 'p2' ? 'forced' : 'stopped' } : p))
+      chosen = true
+    },
     ledger: () => ({
       command: ['claude'],
       phase: current,
@@ -305,6 +319,13 @@ export function fixtureSession(name: string): FixtureSession | null {
     }
     case 'nothing':
       session = scripted('finished', [])
+      break
+    case 'leftovers':
+      session = scripted('finished', [], [], [
+        { id: 'p1', pid: 4312, command: 'python3 -m http.server 8000', started: '2026-01-10T09:01:10Z', seconds: 250, ports: [8000], status: 'running', detail: '' },
+        { id: 'p2', pid: 4377, command: 'node /home/ada/shop/node_modules/.bin/vite --port 5173', started: '2026-01-10T09:03:40Z', seconds: 100, ports: [5173, 24678], status: 'running', detail: '' },
+        { id: 'p3', pid: 4401, command: 'sleep 600', started: '2026-01-10T09:04:55Z', seconds: 25, ports: [], status: 'gone', detail: '' },
+      ])
       break
     case 'sandbox':
       session = scripted('deciding', [

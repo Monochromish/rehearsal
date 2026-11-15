@@ -48,6 +48,12 @@ func buildRehearse(t *testing.T) string {
 }
 
 func TestMain(m *testing.M) {
+	// started by a stand-in agent, this test binary is the server it
+	// leaves running
+	if portFile := os.Getenv(envListener); portFile != "" {
+		listenUntilTold(portFile)
+		return
+	}
 	code := m.Run()
 	if build.bin != "" {
 		if err := os.RemoveAll(filepath.Dir(build.bin)); err != nil {
