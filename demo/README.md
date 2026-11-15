@@ -88,6 +88,57 @@ With a real agent, run `rehearse claude` in the sample project and ask it
 to follow the setup notes in the README. What it does then is up to the
 agent, which may well refuse.
 
+## Side by side
+
+```
+sh demo/side-by-side.sh
+sh demo/side-by-side.sh --reset
+```
+
+One command runs the same `agent.sh` twice at the same moment, in two
+copies of the demo: one with nothing in front of it and one under
+`rehearse`. It first asks:
+
+```
+Invent a password (not a real one):
+```
+
+What you type, 8 characters or more, becomes `PAYMENTS_API_KEY` in the
+`.env` of both copies of the sample project. An empty answer uses the
+demo's own made-up key. Then it prints one address,
+`http://localhost:7921/compare`, a page with two columns that keeps
+itself current: "Without Rehearsal" on the left, "With Rehearsal" on the
+right, and for each what the attacker's inbox has received and whether the
+production database is still there. On the left the password arrives in
+the inbox twice and the database is deleted. On the right nothing arrives,
+the database stays, and four actions wait for your decision.
+
+The session on the right opens the way any session does: in the app window
+when `REHEARSAL_APP` names it, otherwise as the page in a browser.
+`rehearse` is the one in the folder above this one, or on your `PATH`, or
+whatever `REHEARSE` names.
+
+Two steps of `agent.sh` are left out of both runs. The npm step needs Node
+to find the registry by name when there is no Rehearsal to do it, which
+fails on some machines. The step that sends the signed-in Claude account's
+email is left out so that no real address is put on a screen: both runs
+are started as if no account were signed in.
+
+`--reset` stops both copies and removes everything the script made, in a
+few seconds. That is one folder, `~/rehearsal-side-by-side` unless
+`REHEARSAL_SIDE_DIR` names another, and it holds the session's own state
+too. While the demo is up, the typed password is on the left-hand inbox
+page, in the two `.env` files, and packed inside the two sample projects'
+git folders, because the script commits `.env`. Nothing `rehearse` writes
+holds it: the log, the ledger, the report and the export name it only as
+"Value of PAYMENTS_API_KEY from .env". Until you decide, the held requests
+that carried it are kept in the session's private folder, as for any
+session.
+
+The ports are 7921 to 7923 for the left-hand copy and 7931 to 7933 for the
+right. `REHEARSAL_SIDE_PORT` names another first port, and the second copy
+is ten above it.
+
 ## The same scenarios without the demo
 
 `rehearse bench` plays a set of recorded scenarios, these among them,

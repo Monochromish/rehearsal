@@ -244,38 +244,68 @@ var names = []string{"cloud.localhost", "attacker-inbox.localhost", "registry.lo
 
 func main() {
 	base := flag.Int("port", 7911, "first of three ports: cloud host, inbox, registry")
+	with := flag.Int("with", 0, "first of three more ports, for a second copy of the three services: the one an agent is run in under Rehearsal. Both cloud hosts then serve /compare, which shows the two side by side")
 	flag.Parse()
-	if err := run(*base); err != nil {
+	if err := run(*base, *with); err != nil {
 		fmt.Fprintln(os.Stderr, "demo-server:", err)
 		os.Exit(1)
 	}
 }
 
-func run(base int) error {
+// site is one service on one port.
+type site struct {
+	name, address string
+	port          int
+	handler       http.Handler
+}
+
+// services makes one copy of the three services, on base and the two
+// ports after it.
+func services(base int) (*world, []site, error) {
 	address := func(i int) string {
 		return fmt.Sprintf("http://%s:%d", names[i], base+i)
 	}
-	in := &inbox{}
+	w := &world{cloud: newCloud(), inbox: &inbox{}}
 	reg, err := newRegistry(address(2), address(1), time.Now())
+	if err != nil {
+		return nil, nil, err
+	}
+	return w, []site{
+		{"cloud host", address(0), base, w.cloud.handler()},
+		{"attacker's inbox", address(1), base + 1, w.inbox.handler()},
+		{"package registry", address(2), base + 2, reg.handler()},
+	}, nil
+}
+
+// run serves one copy of the services, or two when with is not 0. The
+// first is then the world with nothing in front of the agent and the
+// second the one under Rehearsal, as /compare shows them.
+func run(base, with int) error {
+	first, sites, err := services(base)
 	if err != nil {
 		return err
 	}
-	sites := []struct {
-		name    string
-		port    int
-		handler http.Handler
-	}{
-		{"cloud host", base, newCloud().handler()},
-		{"attacker's inbox", base + 1, in.handler()},
-		{"package registry", base + 2, reg.handler()},
+	if with != 0 {
+		if with > base-3 && with < base+3 {
+			return fmt.Errorf("the second copy's ports (%d to %d) overlap the first's (%d to %d)", with, with+2, base, base+2)
+		}
+		second, more, err := services(with)
+		if err != nil {
+			return err
+		}
+		sites = append(sites, more...)
+		// the cloud host is the first site of each copy
+		for _, i := range []int{0, 3} {
+			sites[i].handler = comparing(sites[i].handler, first, second)
+		}
 	}
 	failed := make(chan error, len(sites))
-	for i, s := range sites {
+	for _, s := range sites {
 		l, err := net.Listen("tcp", local(s.port))
 		if err != nil {
 			return fmt.Errorf("listen for the %s: %w", s.name, err)
 		}
-		fmt.Printf("%-17s %s\n", s.name, address(i))
+		fmt.Printf("%-17s %s\n", s.name, s.address)
 		srv := &http.Server{Handler: s.handler, ReadHeaderTimeout: 5 * time.Second}
 		go func() { failed <- srv.Serve(l) }()
 	}

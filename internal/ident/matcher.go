@@ -273,6 +273,44 @@ func (m *Matcher) Mask(text string) string {
 	if text == "" {
 		return ""
 	}
+	out := m.mask(text, func(string) bool { return true })
+	// Find lowers every letter and mask only the ASCII ones, so a value
+	// with other capitals could be missed above. Show nothing then.
+	if len(m.Find([]byte(out))) > 0 {
+		return NotShown
+	}
+	return out
+}
+
+// MaskSecrets returns text with every secret in it replaced by the
+// secret's name in square brackets, and everything else as it was: the
+// user's details and planted values stay. It is for text that is kept
+// whole, such as a diff, where a secret must not be kept with it. A line
+// that still carries a secret afterwards is replaced, the rest of the
+// text is not.
+func (m *Matcher) MaskSecrets(text string) string {
+	if text == "" || len(m.salts) == 0 {
+		return text
+	}
+	out := m.mask(text, m.IsSecret)
+	carries := func(s string) bool {
+		return slices.ContainsFunc(m.Find([]byte(s)), func(f Match) bool { return m.IsSecret(f.IdentifierID) })
+	}
+	if !carries(out) {
+		return out
+	}
+	lines := strings.Split(out, "\n")
+	for i, line := range lines {
+		if carries(line) {
+			lines[i] = NotShown
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// mask replaces the watched values that only accepts, by ID, with their
+// names in square brackets.
+func (m *Matcher) mask(text string, only func(id string) bool) string {
 	b := []byte(text)
 	lower := asciiLower(b)
 	type span struct {
@@ -281,6 +319,9 @@ func (m *Matcher) Mask(text string) string {
 	}
 	var spans []span
 	for _, n := range m.needles {
+		if !only(n.id) {
+			continue
+		}
 		hay := b
 		if n.wholeWord {
 			hay = lower
@@ -328,11 +369,6 @@ func (m *Matcher) Mask(text string) string {
 		at = s.end
 	}
 	out.Write(b[at:])
-	// Find lowers every letter and Mask only the ASCII ones, so a value
-	// with other capitals could be missed above. Show nothing then.
-	if len(m.Find([]byte(out.String()))) > 0 {
-		return NotShown
-	}
 	return out.String()
 }
 

@@ -189,7 +189,9 @@ difference as `changes.diff` in the session's folder. It does this through
 an index file of its own, so your staged work, your working files and your
 branches are exactly as they were. Files that `.gitignore` leaves out are
 not seen. Outside a git repository nothing is recorded, and the report
-says so.
+says so. A secret from `.env` that turns up in the difference, because
+the agent added the file by force, say, is replaced there by its name
+before the difference is kept.
 
 The difference is split into parts: one run of changed lines, or a whole
 file when it is new, deleted, moved or binary. Rules alone put each part
@@ -880,7 +882,9 @@ What the table shows is what the rules do with these inputs. It says
 nothing about how often a real agent produces them, and nothing about
 attacks that aren't in the set.
 
-`demo/` has the same attacks as a live demonstration on local addresses.
+`demo/` has the same attacks as a live demonstration on local addresses,
+and one command, `sh demo/side-by-side.sh`, that runs the same script with
+and without Rehearsal at the same moment and shows the two side by side.
 See [demo/README.md](demo/README.md).
 
 ## The reviewer

@@ -1283,6 +1283,46 @@ terminal, the report and a past session read back later all say the same
 thing, and `rehearse investigate` gets it by building the ledger from the
 record it was given.
 
+## Side by side
+
+`demo/side-by-side.sh` exists to show one thing at a glance: the same
+script, the same moment, two outcomes.
+
+**The secret is the viewer's.** A made-up key in a file is easy to
+shrug at. A word someone has just typed, turning up in an attacker's
+inbox, is not. So the script asks for one, and the rest follows from
+taking that seriously: it is written to two `.env` files and nowhere
+else by the script, any character is allowed (the agent script now
+encodes it when it puts it in an address), and `--reset` removes every
+file the script made, the session's state included, which is why that
+state is kept inside the script's own folder.
+
+**Two copies in one server.** The demo server can serve a second set of
+its three services on other ports, and the page that compares them reads
+both from memory. Two processes and a page that asked each across origins
+would have needed the services to allow that.
+
+**The page is text.** Two columns, the Rehearsal page's colours by the
+same names and its sizes, nothing boxed. A test compares the colours with
+the page's own palette file, so the two cannot drift apart unnoticed.
+What an inbox received is put on the page as text and never as markup,
+because it is whatever someone typed.
+
+**Two steps left out.** The npm step, which fails without Rehearsal on a
+machine where Node cannot find the registry by its name, and the step
+that sends the signed-in Claude account's email. The second would put a
+real address on a shared screen, and would make the count of held actions
+depend on the machine. Both runs are started as if no
+account were signed in.
+
+**The session's diff no longer keeps a secret.** Writing the test for
+this found the typed password in `changes.diff`: the script adds `.env`
+by force, so the file is part of what changed, and the diff was kept as
+it stood. A secret's value is not supposed to be kept anywhere, so the
+diff now has each secret replaced by its name before it is written. Only
+secrets are replaced. A diff with the user's own name in it is the
+project's text and stays as it is.
+
 ## What the agent left running
 
 `rehearse` starts the agent, which is the one fact that makes this

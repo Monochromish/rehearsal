@@ -133,3 +133,35 @@ func TestMaskShowsNothingWhenAValueSurvives(t *testing.T) {
 		t.Errorf("Mask = %q, want %q", got, NotShown)
 	}
 }
+
+// A diff is kept whole. A secret in it is replaced by its name, and the
+// rest, the user's own details included, stays as it was.
+func TestMaskSecretsLeavesEverythingElseAsItWas(t *testing.T) {
+	ids := []events.Identifier{
+		{ID: "user", Kind: events.KindReal, Label: "Your computer username", Value: "adal"},
+		{ID: "canary-word", Kind: events.KindCanary, Label: "Planted secret word", Value: "canary-word-3f9a1c0b7e2d"},
+		{ID: "env-1", Kind: events.KindSecret, Label: "Value of PAYMENTS_API_KEY from .env", Name: "PAYMENTS_API_KEY"},
+	}
+	const key = "judge's <b>pass</b> word 100%!"
+	m := NewMatcher(ids, Secret{ID: "env-1", Value: key})
+	diff := "diff --git a/.env b/.env\n--- /dev/null\n+++ b/.env\n@@ -0,0 +1,3 @@\n+# for adal, see /home/adal/notes\n+PAYMENTS_API_KEY=" + key + "\n+WORD=canary-word-3f9a1c0b7e2d\n"
+	want := "diff --git a/.env b/.env\n--- /dev/null\n+++ b/.env\n@@ -0,0 +1,3 @@\n+# for adal, see /home/adal/notes\n+PAYMENTS_API_KEY=[PAYMENTS_API_KEY]\n+WORD=canary-word-3f9a1c0b7e2d\n"
+	if got := m.MaskSecrets(diff); got != want {
+		t.Errorf("MaskSecrets:\n got %q\nwant %q", got, want)
+	}
+	for _, same := range []string{"", "no secret here\n", "+user adal\n"} {
+		if got := m.MaskSecrets(same); got != same {
+			t.Errorf("MaskSecrets(%q) = %q, want it unchanged", same, got)
+		}
+	}
+	// with no secrets to watch for, nothing is looked for
+	if got := NewMatcher(ids).MaskSecrets(diff); got != diff {
+		t.Errorf("a matcher with no secrets changed the text: %q", got)
+	}
+	// a secret that masking cannot place costs its own line and no other
+	odd := NewMatcher(nil, Secret{ID: "env-1", Value: "Émile Zola wrote it"})
+	got := odd.MaskSecrets("+first line\n+AUTHOR=ÉMILE ZOLA WROTE IT\n+last line\n")
+	if got != "+first line\n"+NotShown+"\n+last line\n" {
+		t.Errorf("MaskSecrets = %q, want only the line with the secret replaced", got)
+	}
+}

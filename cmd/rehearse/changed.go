@@ -22,6 +22,9 @@ type sessionChanges struct {
 	from                string
 	// why the tree could not be recorded, when it could not
 	problem string
+	// applied to the diff before it is kept: a secret the agent put in a
+	// tracked file is replaced by its name. Nil keeps the diff as it is.
+	mask func(diff string) string
 }
 
 func startChanges(workDir, sessionDir string) *sessionChanges {
@@ -154,6 +157,9 @@ func (c *sessionChanges) capture(ev *events.ChangesCaptured, box *sandbox.Box) e
 	patch, truncated, err := changes.Patch(c.workDir, c.from, ev.To)
 	if err != nil {
 		return err
+	}
+	if c.mask != nil {
+		patch = c.mask(patch)
 	}
 	// The log says that files changed and by how much. What they changed
 	// to is the project's own text, and goes in the session's folder.
