@@ -472,3 +472,31 @@ func TestTruthDoesNotDependOnWhichOfACallAndItsResultIsWrittenFirst(t *testing.T
 		t.Fatalf("truth = %+v", tr)
 	}
 }
+
+// Actions are described a few at a time, so a later one can be described
+// before an earlier one. No decision is waited for until all of them are.
+func TestASessionIsBeingReadUntilEveryActionIsDescribed(t *testing.T) {
+	held := func(id string) events.ActionHeld {
+		return events.ActionHeld{ID: id, Kind: events.ActionHTTP, Method: "POST", Host: "inbox.test", Destination: "inbox.test", IdentifierIDs: []string{}}
+	}
+	pairs := []any{
+		events.TypeSessionStarted, events.SessionStarted{Command: []string{"agent"}, Holding: true},
+		events.TypeActionHeld, held("a1"),
+		events.TypeActionHeld, held("a2"),
+		events.TypeActionHeld, held("a3"),
+		events.TypeSessionEnded, events.SessionEnded{},
+	}
+	for _, step := range []struct {
+		described string
+		want      Phase
+	}{{"a1", PhaseReviewing}, {"a3", PhaseReviewing}, {"a2", PhaseDeciding}} {
+		pairs = append(pairs, events.TypeActionReviewed, reviewed(step.described, events.RiskMedium))
+		l, err := Build(log(t, pairs...))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if l.Phase != step.want {
+			t.Errorf("after %s is described the session is %q, want %q", step.described, l.Phase, step.want)
+		}
+	}
+}

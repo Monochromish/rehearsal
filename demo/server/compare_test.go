@@ -80,15 +80,15 @@ func TestComparePageUsesThePagesOwnPaletteAndSizes(t *testing.T) {
 		t.Errorf("the columns are not headed Without Rehearsal and then With Rehearsal")
 	}
 
-	theme, err := os.ReadFile("../../web/src/theme.ts")
+	app, err := os.ReadFile("../../web/src/App.vue")
 	if err != nil {
 		t.Fatal(err)
 	}
-	light, dark, ok := strings.Cut(string(theme), "dark: {")
+	light, dark, ok := strings.Cut(string(app), "prefers-color-scheme: dark")
 	if !ok {
-		t.Fatal("theme.ts has no dark palette where one was expected")
+		t.Fatal("App.vue has no dark palette where one was expected")
 	}
-	// every colour is one of the page's, under the same name, in the same theme
+	// every colour is one of the page's, in the same theme
 	lightCSS, darkCSS, ok := strings.Cut(page, "prefers-color-scheme: dark")
 	if !ok {
 		t.Fatal("the page has no colours for the dark theme")
@@ -100,8 +100,8 @@ func TestComparePageUsesThePagesOwnPaletteAndSizes(t *testing.T) {
 			t.Errorf("%d colours defined for a theme, want the three the page uses: %v", len(found), found)
 		}
 		for _, m := range found {
-			if !strings.Contains(palette, "'"+m[1]+"': '"+m[2]+"'") {
-				t.Errorf("%s: %s is not that token's value in theme.ts", m[1], m[2])
+			if !strings.Contains(palette, ": "+m[2]+";") {
+				t.Errorf("%s: %s is not one of the Rehearsal page's colours for that theme", m[1], m[2])
 			}
 		}
 	}

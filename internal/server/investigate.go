@@ -6,6 +6,7 @@ import (
 	"mime"
 	"net/http"
 	"path/filepath"
+	"strings"
 
 	"rehearsal/internal/investigate"
 	"rehearsal/internal/record"
@@ -19,11 +20,14 @@ func (s *Server) UseInvestigator(model investigate.Asker) {
 	s.mu.Unlock()
 }
 
+// unsignedYet is how a record with no signature beside it is described.
+const unsignedYet = "does not hold: there is no signed checkpoint"
+
 // investigation applies the rules to one recorded session, or to every
 // session when name is empty.
 func (s *Server) investigation(name string) (*investigate.Case, investigate.Asker, error) {
 	s.mu.Lock()
-	dir, asker, version := s.sessionsDir, s.asker, s.info.Version
+	dir, asker, version, current := s.sessionsDir, s.asker, s.info.Version, s.current
 	s.mu.Unlock()
 	if dir == "" {
 		return nil, nil, fmt.Errorf("this server answers for its own session only")
@@ -46,6 +50,14 @@ func (s *Server) investigation(name string) (*investigate.Case, investigate.Aske
 	recs, err := investigate.Open(path, trusted)
 	if err != nil {
 		return nil, nil, err
+	}
+	// The session this server is for is still open, and a record is signed
+	// when its session ends. Until then there is no signature to have
+	// failed, and its custody says that and not that one does not hold.
+	for i := range recs {
+		if c := &recs[i].Custody; c.Session == current && !c.Verified && strings.HasPrefix(c.Signature, unsignedYet) {
+			c.Signature = "not checked yet: this session is still open, and its record is signed when it ends"
+		}
 	}
 	return investigate.Investigate(recs, version), asker, nil
 }

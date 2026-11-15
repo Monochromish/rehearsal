@@ -11,6 +11,7 @@ import (
 
 	"rehearsal/internal/events"
 	"rehearsal/internal/investigate"
+	"rehearsal/internal/record"
 )
 
 type standIn struct{ reply string }
@@ -127,5 +128,57 @@ func TestInvestigationIsServed(t *testing.T) {
 	getInto(t, s.URL+"/api/investigate?session="+older+"&narrate=1", &one)
 	if n := one.Findings[0].Narrative; n == nil || len(n.Sentences) != 1 || n.Removed != 1 || n.Model != "stand-in" {
 		t.Errorf("the account = %+v", n)
+	}
+}
+
+// A record is signed when its session ends. The session being served has
+// no signature yet, which is not the same as one that does not hold.
+func TestTheLiveSessionsSignatureIsNotCheckedYet(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	keyDir, err := record.KeyDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := record.LoadOrCreateKey(keyDir); err != nil {
+		t.Fatal(err)
+	}
+	sessions := t.TempDir()
+	const ended, open = "20260101-090000-aaaaaa", "20260102-090000-bbbbbb"
+	old := recorded(t, sessions, ended, "/home/ada/shop", func(log *events.Log) {
+		if _, err := log.Append(events.TypeSessionEnded, events.SessionEnded{}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if err := old.Close(); err != nil {
+		t.Fatal(err)
+	}
+	live := recorded(t, sessions, open, "/home/ada/site", nil)
+	defer func() {
+		if err := live.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
+	s, err := Start(live, fstest.MapFS{}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := s.Shutdown(ctx); err != nil {
+			t.Error(err)
+		}
+	}()
+	s.ServeSessions(sessions, open)
+
+	var c investigate.Case
+	getInto(t, s.URL+"/api/investigate?session="+open, &c)
+	if len(c.Records) != 1 || c.Records[0].Verified || !strings.HasPrefix(c.Records[0].Signature, "not checked yet: this session is still open") {
+		t.Errorf("the open session's custody = %+v", c.Records)
+	}
+	// a session that ended with no signature is still said not to hold
+	getInto(t, s.URL+"/api/investigate?session="+ended, &c)
+	if len(c.Records) != 1 || c.Records[0].Verified || !strings.HasPrefix(c.Records[0].Signature, "does not hold: there is no signed checkpoint") {
+		t.Errorf("the ended session's custody = %+v", c.Records)
 	}
 }

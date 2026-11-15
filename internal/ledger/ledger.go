@@ -548,11 +548,16 @@ func phase(l Ledger) Phase {
 	if l.EndedAt == nil {
 		return PhaseRunning
 	}
+	// Descriptions arrive a few at a time and in no order, so every action
+	// is looked at before any is taken to be waiting for a decision.
+	for _, a := range l.Actions {
+		if a.Review == nil {
+			return PhaseReviewing
+		}
+	}
 	waiting, failed := false, false
 	for _, a := range l.Actions {
 		switch {
-		case a.Review == nil:
-			return PhaseReviewing
 		case a.Decision == Undecided:
 			return PhaseDeciding
 		case a.Outcome == Failed:

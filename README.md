@@ -44,10 +44,10 @@ What it does today:
   your files the same way, and cuts off any network that doesn't go through
   it.
 
-Three places show a session. The page in the browser shows servers, held
-actions and the decision. The terminal commands print the changes and the
-investigation. An app window, which is built separately and is not in this
-repository, shows all of it in one place; see "The app window".
+Two places show a session. The page in the browser shows all of it: the
+held actions, the claims and the changes in one list, the servers, the
+record and the investigation. The terminal commands print the changes and
+the investigation. See "The page".
 
 ## How this differs from an agent's own permission modes
 
@@ -73,9 +73,8 @@ program that ignores the proxy settings gets past it. See "Current limits".
 
 ## What it shows
 
-The page lists every server the agent contacted, split into the model provider
-and everything else. Each server has a request count and the details of yours
-it received.
+The page's Servers tab lists every server the agent contacted. Each has a
+request count and the details of yours it received.
 
 "Your details" means your git name and email, your computer username, your
 computer's name and, if you are signed in to Claude Code, the email of that
@@ -161,20 +160,22 @@ Its entry in the record names the server whose content gave the address,
 and `rehearsal-report.md` lists it under "Links the agent followed".
 
 When the agent exits, `rehearse` stays running and the page lists what was
-held, in three groups: "Look at these" (high risk), "Probably fine" (medium)
-and "Routine" (low, collapsed to one line). High-risk actions start
-unticked, the rest ticked. Each row says in plain words what the action
-would do, where it goes, and what the reviewer made of it, with the exact
-command one click away. Identical actions to the same place share a row.
+held, under "Leaving this computer", above the changes to read. High-risk
+actions start unticked, the rest ticked, and routine ones share one row.
+Each row says in plain words what the action would do and the most
+surprising fact about it. Clicking a row opens its detail beside the list:
+what the reviewer made of it and the exact command. While the reviewer is
+still describing the actions the page says how many are done, and no
+decision is taken until all of them are.
 
-One button carries out the decision and says what it will do ("Allow 2,
-refuse 1"). Allowed actions are replayed in the order they were held,
-stopping at the first failure. "Discard all" performs none, and so does
-pressing Ctrl+C in the terminal. Afterwards the page shows a table of every
-held action with what was sent and what was decided, which can be copied as
-Markdown. The same result is printed in the terminal and written to
-`rehearsal-ledger.json` in the session's folder. The terminal says where
-that is when `rehearse` exits.
+One button carries out the decision and says what it will do ("Allow:
+delete database production", "Refuse all 4"). Allowed actions are replayed
+in the order they were held, stopping at the first failure. Unticked
+actions are refused, and pressing Ctrl+C in the terminal refuses them all.
+Afterwards each row says what became of it, and the page opens with the
+sentence described under "Said against observed". The same result is
+printed in the terminal and written to `rehearsal-ledger.json` in the
+session's folder. The terminal says where that is when `rehearse` exits.
 
 A held push is not sent if its branch has moved since it was held, because you
 would be approving something other than what you were shown.
@@ -213,10 +214,10 @@ formatting. `rehearse bench` measures the rules on 39 labelled parts; see
 With a local model, each part under Read or Skim then gets one sentence on
 what it does. See "What it says about the changes" under "The reviewer".
 
-Where to see it: `rehearsal-report.md` has the totals, `rehearse review`
-prints the same sorting for any range of commits, the app window lists the
-parts, and `GET /api/changes` serves them. The page in the browser does not
-show changes.
+Where to see it: the page lists the parts to read, with those to skim and
+the mechanical ones folded below them, `rehearsal-report.md` has the
+totals, `rehearse review` prints the same sorting for any range of
+commits, and `GET /api/changes` serves them.
 
 ## What the agent left running
 
@@ -235,17 +236,8 @@ or session (`setsid`, `nohup`, a server that forks twice) is still found.
 Another copy of the same program that you started yourself is not on the
 list, and nothing that is not on the list can be stopped.
 
-On the page the list is the group "Still running": one row for each
-process with a tick box, all ticked to begin with, and one button that
-says what it will do ("Stop 2, leave 1 running"). A ticked process is sent
-the polite signal (`SIGTERM`), and the forced one (`SIGKILL`) if it is
-still there 3 seconds later. Its row then says what happened: stopped,
-stopped by force, or already gone, when it had exited by itself and
-nothing was sent to it. When nothing was held, `rehearse` waits for this
-choice before it exits. Ctrl+C in the terminal leaves everything running.
-
-With `--no-open`, or when the app window is in use, nothing is asked. The
-list is printed when `rehearse` exits and everything is left running:
+The list is printed when `rehearse` exits, and everything on it is left
+running:
 
 ```
 rehearse: what the agent started that was still running when it exited:
@@ -254,7 +246,13 @@ Nothing was stopped. Run with --stop-leftovers to stop everything the agent leav
 ```
 
 `--stop-leftovers` stops everything on the list as soon as the agent
-exits, however the session is shown.
+exits. A process that is stopped is sent the polite signal (`SIGTERM`),
+and the forced one (`SIGKILL`) if it is still there 3 seconds later.
+
+The page does not show this list yet. The API serves it, stops the
+processes it is given and says what became of each: stopped, stopped by
+force, or already gone, when it had exited by itself and nothing was sent
+to it. See "The page".
 
 With `--sandbox` it is the same. A process the agent leaves inside the
 sandbox goes on running there after the agent exits, and after `rehearse`
@@ -283,7 +281,8 @@ What it doesn't do:
 When a session is over, one sentence sets what the agent said, or was
 told, against what the record shows. It is made by rules and no model is
 asked. It is the first line `rehearse` prints with the ledger, the first
-line of `rehearsal-report.md`, a line under the summary on the page, and a
+line of `rehearsal-report.md`, a line under the opening sentence of the
+finished page, and a
 statement in `rehearse investigate`.
 
 It takes the first of these that applies:
@@ -402,12 +401,16 @@ Inside the sandbox:
   ignores the proxy settings cannot connect to anything, and names are only
   looked up by the proxy. If `rehearse` dies, that path dies with it.
 
-When the agent exits, the decision screen has a "File changes" group: one
-row per file added, changed or deleted, with a tick box and the change
-itself behind "Show changes". A folder that is new, or gone, is one row. So
-is everything git wrote for itself under `.git`, which is where the agent's
-commits are until you allow that row. Allowed changes are copied into the
-real project before any held push is sent.
+When the agent exits, each file added, changed or deleted is a held action
+of its own. A folder that is new, or gone, is one. So is everything git
+wrote for itself under `.git`, which is where the agent's commits are until
+that one is allowed. Allowed changes are copied into the real project
+before any held push is sent.
+
+The page does not offer these for a decision yet. It lists what the agent
+changed, sorted for reading, with no tick boxes, and a decision taken on
+the page refuses every held file change. To allow some, send `/api/apply`
+a decision that names them.
 
 A change is refused, with nothing written, if the real file was modified
 after the session started. You would be getting something other than what
@@ -544,7 +547,7 @@ Three things limit what a rule can do:
   policy during a session, nothing changes for that session, and the edit is
   reported under "Unusual".
 
-An ignored rule is never silent. The page and `rehearsal-report.md` list each
+An ignored rule is never silent. `rehearsal-report.md` lists each
 one with the reason, and so does:
 
 ```
@@ -560,10 +563,12 @@ A policy file that can't be read stops `rehearse` from starting.
 ### Rules it offers to write
 
 When you have allowed the same kind of action to the same destination in
-three earlier sessions, the decision screen offers a rule for it: the exact
-line, with a tick box that starts empty. If you tick it, that one line is
-added to `.rehearsal/policy.yaml` after your decision is carried out. Nothing
-is ever added without the tick, and no rule is offered for an action the
+three earlier sessions, a rule is offered for it: the exact line. It is
+added to `.rehearsal/policy.yaml` after your decision is carried out, and
+only if the decision names it. The page does not show these offers yet.
+`/api/ledger` lists them under `policy.offers`, and a decision sent to
+`/api/apply` can name them in `rules`. Nothing is ever added unasked, and
+no rule is offered for an action the
 built-in rules rate high. What is remembered between sessions is the kind,
 the destination and a count, in `~/.local/state/rehearsal/approvals.json`.
 
@@ -668,10 +673,9 @@ it out.
 Nothing in the repository changes: the comparison goes through an index
 file of its own, as a session's does. The review is kept as a session under
 `~/.local/state/rehearsal/sessions`, with its diff and a signed record, so
-`rehearse verify` works on it and the app window can show it. When
-`REHEARSAL_APP` names the app, the window opens on the review and stays
-until you press Ctrl-C. The page in the browser does not show changes, so
-without the app the terminal is where the review is read.
+`rehearse verify` works on it, and the page lists it among the sessions the
+next time `rehearse` runs. `rehearse review` serves no page of its own: the
+terminal is where the review is read.
 
 ## Investigating a record
 
@@ -964,41 +968,25 @@ rehearse --reviewer-url http://192.168.96.1:11434/v1 claude
 or set `REHEARSAL_REVIEWER_URL` and `REHEARSAL_REVIEWER_MODEL`. Outside WSL
 the default is `http://localhost:11434/v1`.
 
-## The app window
+## The page
 
-The page in the browser was the first way to see a session. An app window
-does the same job with more room: the held actions, the claims and the
-changes in one list, and the investigation beside them. It is a separate
-program, built separately, and it is not in this repository. Nothing here
-depends on it. What follows is how `rehearse` works with it.
+The page `rehearse` serves has a sidebar and a panel. The sidebar lists the
+sessions recorded on this computer, by project, and leads to the
+investigation. The panel shows one session in three tabs:
 
-```
-REHEARSAL_APP=/path/to/the/app rehearse claude
-```
+- Review: the held actions, what the agent claimed and the changes worth
+  reading, in one list, with the detail of the selected row beside it and
+  the decision at the bottom.
+- Servers: every server contacted and what it received.
+- Record: whether the record holds, and its entries in order.
 
-starts that program as `PROGRAM -url http://localhost:PORT`, in the
-program's own folder, in place of opening the browser. The address is an
-argument and not an environment variable so that the program can be one
-built for another system: a Windows program started from Ubuntu under WSL
-is handed neither the environment nor a usable working folder. If the
-program can't be started, `rehearse` says so and opens the page.
+The Investigate view applies the rules to this session or to every
+session: custody in one line, the findings, and for each finding the chain
+and the log entries it rests on. It is reached from the sidebar. In a
+window under 900 pixels wide there is no sidebar: a chooser above the tabs
+picks the session, and the Record tab has the way in to the investigation.
 
-The window gets everything through the same local HTTP API as the page and
-reads nothing from disk:
-
-| Address | What it answers |
-|---|---|
-| `/api/info` | The version, and the local model if there is one. |
-| `/api/ledger`, `/api/held`, `/api/events` | The live session, as the page uses them. |
-| `/api/changes`, `/api/change?id=` | The session's changes, sorted, and one part's diff. |
-| `/api/sessions` | Every recorded session, newest first. |
-| `/api/sessions/NAME/ledger`, `changes`, `change`, `entries`, `record` | The same for a past session, read-only. |
-| `/api/investigate`, `/api/investigate/ask` | The investigation of one session or all, and a question put to it. |
-| `/api/apply` | The decision, accepted once the agent has exited. |
-| `/api/leftovers` | What the agent started that is still running, once it has exited. |
-| `/api/leftovers/stop` | Stops the listed processes it is given (`{"stop": ["p1"]}`) and answers with what became of each. |
-
-The window is written to cut down what has to be read before deciding.
+The page is written to cut down what has to be read before deciding.
 The sentence at the top names the most serious thing that is waiting
 before it counts the rest. Low-risk actions fold into one row with one
 tick. A row's second line is the most surprising fact about the action,
@@ -1009,13 +997,36 @@ its detail shows the chain and then the one log entry that proves it, in
 full. Nothing is removed to get there: every sentence, entry and hash is
 one click away.
 
-What has and has not been tried: the window has been run on Linux only,
-against scripted sessions that put it in each of its states, and
-photographed at three widths in both themes. A test in its own code counts the words on
-screen before any click with three or fewer things waiting: 56, 51 and 51
-in the three scripted sessions that qualify, against a limit of 60. No
-person has yet taken a live agent session through it from start to
-decision.
+It gets everything through a local HTTP API and reads nothing else:
+
+| Address | What it answers |
+|---|---|
+| `/api/info` | The version, and the local model if there is one. |
+| `/api/ledger`, `/api/held`, `/api/events` | The live session. |
+| `/api/changes`, `/api/change?id=` | The session's changes, sorted, and one part's diff. |
+| `/api/sessions` | Every recorded session, newest first. |
+| `/api/sessions/NAME/ledger`, `changes`, `change`, `entries`, `record` | The same for a past session, read-only. |
+| `/api/investigate`, `/api/investigate/ask` | The investigation of one session or all, and a question put to it. |
+| `/api/apply` | The decision, accepted once the agent has exited. |
+| `/api/leftovers` | What the agent started that is still running, once it has exited. |
+| `/api/leftovers/stop` | Stops the listed processes it is given (`{"stop": ["p1"]}`) and answers with what became of each. |
+
+The page asks for the session again every second while there is something
+to wait for. When `rehearse` exits there is nothing left to ask: the page
+keeps what it last showed, and the tabs and the investigation can load
+nothing new. Look at the investigation before you decide.
+
+`?fixture=NAME` in the address shows a scripted session with nothing
+running. The names are in `web/src/fixtures.ts`. `?theme=light` or
+`?theme=dark` fixes the theme, which otherwise follows the system.
+`?view=investigate`, `?tab=servers` and `?tab=record` open the page there.
+
+A native window that shows the same screens is planned.
+
+What has and has not been tried: the page has been run in one browser, on
+scripted sessions and on the demo's scripted agent, at 1280 by 720 pixels
+and at the sizes that 125 and 150 percent zoom leave of that. No person has
+yet taken a real agent's session through it from start to decision.
 
 ## Stand-in answers
 
@@ -1183,10 +1194,9 @@ for it, and `rehearse` says so when it exits.
   "What the agent left running". Inside the sandbox the page can't be
   reached.
 - The list of what the agent left running has been run with shell scripts
-  standing in for an agent, and on the page in one such session. Inside
-  the sandbox it has been run with a `sleep` and nothing else, and no port
-  has been read there. It has not been run with a real agent, and the app
-  window does not show it.
+  standing in for an agent. Inside the sandbox it has been run with a
+  `sleep` and nothing else, and no port has been read there. It has not
+  been run with a real agent, and the page does not show it.
 - A held request with a body over 32 MB is refused, not held.
 - Git and read-only `gh` commands use `POST` for reads, so they go through a
   second proxy that records but never holds. Other `npm` and unrecognised `gh`
@@ -1271,8 +1281,11 @@ for it, and `rehearse` says so when it exits.
   the answer was right and cited the three right entries, and added a
   detail ("shop name") that is in a different entry, one written by the
   reviewer model. Open the citations.
-- The app window is not in this repository, has been run on Linux only, and
-  has not been used by a person on a live session.
+- The page has been run in one browser, on scripted sessions and the
+  demo's scripted agent, and not by a person on a real agent's session.
+  It does not offer held file changes from `--sandbox` or offered policy
+  rules for a decision, does not list ignored policy rules or what the
+  agent left running, and cannot copy the finished session as Markdown.
 - It has been run on one setup: Ubuntu 26.04 under WSL2 on ARM64. With
   Claude Code itself, two things have been run. The ledger and the holds on
   pushes were, early on. Later, three sessions of `claude -p` in the demo

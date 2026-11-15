@@ -60,9 +60,8 @@ func comparing(next http.Handler, without, with *world) http.Handler {
 	return mux
 }
 
-// comparePage is two columns of plain text. Its colours are the Rehearsal
-// page's own, by the same names and with the same values for each theme,
-// and its sizes are four of that page's. What it shows is set as text,
+// comparePage is two columns of plain text. Its colours are three of the
+// Rehearsal page's own, with the same values for each theme. What it shows is set as text,
 // never as markup, since an inbox holds whatever was sent to it.
 const comparePage = `<!doctype html>
 <meta charset="utf-8">

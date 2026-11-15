@@ -1,0 +1,33 @@
+/* What a browser needs said that a window does not. The colours and sizes
+   themselves are in App.vue. */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  /* a part of a row or a column may be squeezed below what it holds, so
+     that the lists inside scroll and the page itself never does */
+  min-width: 0;
+  min-height: 0;
+}
+html,
+body,
+#app {
+  height: 100%;
+}
+body {
+  margin: 0;
+  background: var(--chrome);
+  color: var(--text);
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+}
+#app {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}

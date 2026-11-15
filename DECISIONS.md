@@ -156,30 +156,30 @@ it is back to what its own resolver knows.
 
 ## The page
 
-The page re-reads `/api/ledger` when events arrive on `/api/events`, a few
-times a second at most. The ledger is computed in one place, the Go code.
+The page asks for the ledger and the changes again every second while a
+session is running, being read or being carried out, and stops when it is
+finished. The ledger is computed in one place, the Go code.
 
-`web/src/api.ts` checks the shape of everything it receives by hand and
-throws on a mismatch. There is no schema library because it would be a new
-dependency. A failed read or an unreadable update is shown at the top of the
-page, above the last state that was read, with what to do about it.
+What arrives is taken to be what the types in `web/src/types.ts` say. A
+read that fails is shown above the last state that was read.
 
-Headings are real `h1` and `h2` elements, controls are real buttons, and
-tick boxes are real checkboxes with labels. There are no landmark elements
-(`main`, `header`, `section`, `nav`) yet: the components will be ported to a
-native renderer that maps a limited set of tags, and which ones it supports
-is still to be confirmed.
+The screens are plain `div` and `span` elements with real buttons and
+checkboxes, because the same components are meant to run in a native
+window that maps a limited set of tags.
 
-The two colour palettes are plain data applied to the root element as CSS
-variables, and no colour is written anywhere else. The page follows the
-system's theme until the reader picks one with the link at the bottom.
-Styles use flexbox, class selectors (with `:focus-visible` and `:disabled`
-where a control needs them) and margins only.
+Every colour, space, size and radius is a named value defined once, in
+`web/src/App.vue`, for a light and a dark theme, and components use the
+names only. The page follows the system's theme unless its address fixes
+one.
 
-The page has one column and three states, and shows only what fits the
-moment: what is unusual while the agent runs, the decision once it has
-exited, and a report afterwards. The full server list and the watched values
-are one click away in every state, never on screen by default.
+The page has a sidebar of sessions and a panel with three tabs, and the
+detail of what is selected opens beside the list. Under 900 pixels the
+sidebar gives way to a chooser above the tabs, and a detail takes the
+list's place. What a browser needs said and a window does not is in
+`web/src/base.css`: borders counted inside sizes, no margin on the body,
+the full height, a system font, and every part of a row or a column free
+to shrink below what it holds, so that the lists scroll and the page
+itself does not.
 
 With `?fixture=NAME` in its address the page shows a scripted session and
 contacts nothing. The names are in `web/src/fixtures.ts`. They exist so each
@@ -1186,7 +1186,7 @@ window can run on a different system from `rehearse`.
 ## One palette, and what each colour may be used for
 
 The page's colours are ten named values for each theme, defined once in
-`web/src/theme.ts`: three surfaces (window, panel, raised), two text tones,
+`web/src/App.vue`: three surfaces (window, panel, raised), two text tones,
 a hairline, one accent and three risk colours. Nothing else is a colour.
 
 **Each colour has one job.** The accent is for focus rings and links. It is
@@ -1371,13 +1371,11 @@ the program name kept for the agent itself. It is treated as a held
 command's is: anything shaped like a credential is hidden, and a watched
 secret is replaced by its name.
 
-**When `rehearse` waits.** With the page open and nothing chosen yet,
-`rehearse` stays until the page says which to stop, since a list that
-disappears with the page server would be no use. With `--no-open` it
-prints and leaves everything running, and `--stop-leftovers` is the way
-to have them stopped without being asked. The app window does not show
-the list yet, so with it `rehearse` behaves as with `--no-open`. A wait
-for an answer the window cannot give would never end.
+**Nothing waits for an answer.** The page does not list what was left
+running, so `rehearse` prints the list and leaves everything running, and
+`--stop-leftovers` is the way to have them stopped. The API still serves
+the list and stops what it is given, for a front end that shows it. A wait
+for an answer no front end can give would never end.
 
 **In the sandbox, from outside it.** The sandbox does not end when the
 agent does. Its first process waits for everything inside to exit, so a
@@ -1388,8 +1386,3 @@ any others, and nothing new runs inside. The sandbox's first process
 descends from what `rehearse` started and would otherwise be on the list.
 It is recognised by being process 1 of a process namespace directly
 inside this one, which the kernel reports, and left off.
-
-**The rows.** The group is a component of its own, drawn with the same
-rules as a held action's row and the decision's button and with no colour
-or size of its own. It is not the action row itself, because that row is
-built around a held action and its reviewer's sentence.

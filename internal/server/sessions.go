@@ -277,6 +277,14 @@ func (s *Server) handleSessionRecord(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
+		s.mu.Lock()
+		current := s.current
+		s.mu.Unlock()
+		// The session being served is still open and is signed when it
+		// ends: its record lacks a signature, and has not failed a check.
+		if r.PathValue("name") == current && !check.Verified && check.BadEntry == 0 && strings.HasPrefix(check.Problem, "there is no signed checkpoint") {
+			check.Problem = fmt.Sprintf("Each of the %d entries so far matches its hash and follows the one before. This session is still open, and its record is signed when it ends.", check.Entries)
+		}
 		writeJSON(w, check)
 		return nil
 	})

@@ -381,14 +381,14 @@ func rehearse(opts options, command []string) (exitCode int, err error) {
 	})
 
 	fmt.Fprintf(os.Stderr, "rehearse: watching. Ledger page: %s\n", web.URL)
-	// whether the page in a browser is where this session is shown
-	onPage := false
+	// Whether what is shown can be asked which leftover processes to stop.
+	// Neither the page nor the app window lists them yet, so nothing waits
+	// for that answer: the list is printed and everything is left running.
+	const onPage = false
 	if !opts.noOpen {
-		inApp, err := openWindow(web.URL)
-		if err != nil {
+		if _, err := openWindow(web.URL); err != nil {
 			fmt.Fprintf(os.Stderr, "rehearse: could not open a window (%v). Open the address above yourself.\n", err)
 		}
-		onPage = !inApp
 	}
 
 	// Every process the agent starts is followed from here on, so that
