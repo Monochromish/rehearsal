@@ -210,6 +210,10 @@ func (l Ledger) Markdown() string {
 		agent = l.Command[0]
 	}
 	fmt.Fprintf(&b, "# Rehearsal report: %s\n\n", agent)
+	if t := l.Truth; t != nil {
+		fmt.Fprintf(&b, "%s\n\n", t.Sentence)
+		fmt.Fprintf(&b, "The first part rests on %s of the record, the second on %s. `rehearse export` prints them.\n\n", entryWords(t.Said.Entries), entryWords(t.Observed.Entries))
+	}
 	b.WriteString("## What left your computer\n\n| Server | Kind | Requests | Bytes sent | Received |\n|---|---|---|---|---|\n")
 	for _, s := range l.Servers {
 		kind := "other"

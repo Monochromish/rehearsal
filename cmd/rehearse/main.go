@@ -34,6 +34,7 @@ import (
 	"rehearsal/internal/policy"
 	"rehearsal/internal/proxy"
 	"rehearsal/internal/record"
+	"rehearsal/internal/redact"
 	"rehearsal/internal/review"
 	"rehearsal/internal/run"
 	"rehearsal/internal/sandbox"
@@ -470,6 +471,17 @@ func rehearse(opts options, command []string) (exitCode int, err error) {
 	stopIntake()
 	if holder != nil {
 		holder.Close()
+	}
+	// What the agent's last message says it did, for the sentence that
+	// sets it against what was observed. Only the start of each sentence
+	// that makes such a claim is kept.
+	if claims := ledger.Claims(recorders[0].FinalText()); len(claims) > 0 {
+		for i := range claims {
+			claims[i].Words = redact.Text(matcher.Mask(claims[i].Words), keep...)
+		}
+		if _, aerr := log.Append(events.TypeAgentClaims, events.AgentClaims{Claims: claims}); aerr != nil {
+			err = errors.Join(err, aerr)
+		}
 	}
 	if _, aerr := log.Append(events.TypeSessionEnded, events.SessionEnded{ExitCode: exitCode}); aerr != nil {
 		err = errors.Join(err, aerr)

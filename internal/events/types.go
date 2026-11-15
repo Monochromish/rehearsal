@@ -49,7 +49,25 @@ const (
 
 	TypeProcessLeft    Type = "process_left"
 	TypeProcessStopped Type = "process_stopped"
+
+	TypeAgentClaims Type = "agent_claims"
 )
+
+// AgentClaims is what the agent's last message says it did, as far as
+// rules can tell: one claim for each kind found. It is written when the
+// agent exits, and only when there is at least one.
+type AgentClaims struct {
+	Claims []AgentClaim `json:"claims"`
+}
+
+// AgentClaim is one thing the agent said it had done.
+type AgentClaim struct {
+	// tests, build, lint, commit, push, install or deletion
+	Kind string `json:"kind"`
+	// the start of the sentence that made the claim, with watched values
+	// replaced by their names
+	Words string `json:"words"`
+}
 
 // ProcessLeft is a process the agent started that was still running when
 // the agent exited. There is one entry for each.

@@ -174,7 +174,7 @@ onUnmounted(() => {
         <div class="meta">Rehearsal</div>
         <h1 v-if="problems.length === 0" class="waiting">Connecting to Rehearsal.</h1>
       </div>
-      <StatusHeading v-else :meta="meta" :status="status" />
+      <StatusHeading v-else :meta="meta" :status="status" :truth="phase === 'finished' ? (ledger.truth?.sentence ?? '') : ''" />
 
       <div v-if="problems.length > 0" class="problems" role="alert">
         <h2 class="problem-heading">Something went wrong</h2>

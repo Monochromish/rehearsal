@@ -91,6 +91,22 @@ func (c *Case) Markdown() string {
 		fmt.Fprintf(&b, "- %s\n", l)
 	}
 
+	if len(c.Truth) > 0 {
+		b.WriteString("\n## Said against observed\n\n")
+		b.WriteString("What the agent said in its last message, or was told when an action was held, beside what the record shows. The first entries cited are what was said or told, the rest what was observed.\n\n")
+		for _, s := range c.Truth {
+			note := ""
+			if i := c.session(s.Refs[0].Label); i >= 0 && !c.records[i].Custody.Verified {
+				note = " **From an unverified record.**"
+			}
+			fmt.Fprintf(&b, "- **%s.** %s: %s %s%s\n\n", s.Kind, s.Refs[0].Label, s.Text, cites(s.Refs), note)
+			for _, r := range s.Refs {
+				c.rawEntry(&b, r)
+			}
+			b.WriteString("\n")
+		}
+	}
+
 	b.WriteString("\n## Findings\n\n")
 	if len(c.Findings) == 0 {
 		b.WriteString("The rules found nothing to report in what was read.\n")

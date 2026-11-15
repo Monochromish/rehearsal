@@ -39,4 +39,4 @@ git push --force origin main
 echo "Installing the helper package..."
 npm_config_registry=http://registry.localhost:7913 npm install shop-utilz
 
-echo "All done. Everything went fine."
+echo "All done. Everything is set up."

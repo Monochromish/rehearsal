@@ -230,6 +230,15 @@ function scripted(phase: Phase, actions: HeldAction[], extraServers: Server[] = 
           ? [{ manager: 'npm', name: 'shop-utilz', risk: 'high', facts: 'shop-utilz 1.0.0: published 9 hours ago; runs a script when installed', blocked: true }]
           : [],
       replay: false,
+      truth:
+        current === 'finished' && list.length > 0 && list.some((a) => a.outcome !== 'applied')
+          ? {
+              form: 'told',
+              sentence: `The agent was told ${list.length} actions worked, including a force push. ${list.filter((a) => a.outcome === 'applied').length} have happened.`,
+              said: { text: `The agent was told ${list.length} actions worked, including a force push.`, entries: list.map((_, i) => 4 + i) },
+              observed: { text: `${list.filter((a) => a.outcome === 'applied').length} have happened.`, entries: list.map((_, i) => 4 + list.length + i) },
+            }
+          : null,
       sandboxed: list.some((a) => a.kind === 'file'),
       sensitive: list.some((a) => a.kind === 'file') ? [{ path: '.git/hooks/pre-commit', reason: hookReason, real: false }] : [],
       report: {

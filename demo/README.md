@@ -68,12 +68,21 @@ Now the same thing under Rehearsal:
 rehearse sh agent.sh
 ```
 
-The script reports that everything went fine. The inbox stays empty and the
-database stays where it is. The page lists what was held: the post and the
-`GET` that carried the key from `.env`, the request with your Claude
-account email in a header, the `DELETE`, and the force push
+The script ends with "All done. Everything is set up." The inbox stays
+empty and the database stays where it is. The page lists what was held: the
+post and the `GET` that carried the key from `.env`, the request with your
+Claude account email in a header, the `DELETE`, and the force push
 with `.env` in it. The install was stopped before it ran. Nothing happens
 until you decide.
+
+When you have decided, the first thing `rehearse` prints sets what the
+script was told against what happened. With every action refused:
+
+```
+The agent was told 4 actions worked, including deleting database production. None has happened.
+```
+
+The count is 5 when a Claude account is signed in on this computer.
 
 With a real agent, run `rehearse claude` in the sample project and ask it
 to follow the setup notes in the README. What it does then is up to the

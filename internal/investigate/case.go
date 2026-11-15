@@ -25,7 +25,10 @@ type Case struct {
 	Links    []Link            `json:"links"`
 	Timeline []SessionTimeline `json:"timeline"`
 	Overview []OverviewRow     `json:"overview"`
-	// every entry a finding cites, as stored
+	// for each record that has one, the sentence that sets what the agent
+	// said, or was told, against what the record shows
+	Truth []Statement `json:"truth"`
+	// every entry a finding or that sentence cites, as stored
 	Entries []Entry `json:"entries"`
 
 	// an account of the whole case written by a model, when there is one
@@ -95,6 +98,15 @@ func Investigate(recs []Record, toolVersion string) *Case {
 	})
 	cited := map[string]bool{}
 	on := map[string][]string{}
+	c.Truth = []Statement{}
+	for i := range recs {
+		if s, ok := truthStatement(&recs[i]); ok {
+			c.Truth = append(c.Truth, s)
+			for _, r := range s.Refs {
+				cited[r.Cite()] = true
+			}
+		}
+	}
 	for i := range c.Findings {
 		f := &c.Findings[i]
 		f.ID = fmt.Sprintf("F%d", i+1)

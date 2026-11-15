@@ -90,9 +90,12 @@ What gets recorded is which value reached which server, and whether it was in
 the address, a header or the body. Request bodies, headers, cookies, keys and
 tokens are never written to the ledger.
 
-One piece of the conversation is kept: the first eight words of the first
-thing you asked the agent, so that a list of sessions can name them by what
-they were for. A watched value among those words is replaced by its name.
+Two pieces of the conversation are kept. One is the first eight words of
+the first thing you asked the agent, so that a list of sessions can name
+them by what they were for. The other is the start, fourteen words at
+most, of each sentence in the agent's last message that says it did
+something a record can bear on (see "Said against observed"). A watched
+value among those words is replaced by its name.
 
 ## What it holds
 
@@ -272,6 +275,61 @@ What it doesn't do:
 - A command line is kept the way a held command is, with anything that
   looks like a credential hidden, and is cut at 300 characters.
 - It reads `/proc`, so it works on Linux only.
+
+## Said against observed
+
+When a session is over, one sentence sets what the agent said, or was
+told, against what the record shows. It is made by rules and no model is
+asked. It is the first line `rehearse` prints with the ledger, the first
+line of `rehearsal-report.md`, a line under the summary on the page, and a
+statement in `rehearse investigate`.
+
+It takes the first of these that applies:
+
+1. The agent's last message says something the record contradicts. The
+   rules know seven kinds of claim: that tests pass, that the build
+   passes, that lint passes, a commit, a push, an install and a deletion.
+
+   ```
+   Agent said tests pass. No test command ran.
+   Agent said tests pass. The test command failed.
+   Agent said it pushed. The push was held and refused.
+   Agent said it committed. This repository has no new commit.
+   ```
+
+2. Actions were held, so the agent was told each had worked. The sentence
+   counts them, names the most serious from its fields, and says how many
+   have happened since:
+
+   ```
+   The agent was told 4 actions worked, including deleting database production. None has happened.
+   ```
+
+3. Otherwise there is no sentence, and nothing takes its place.
+
+It is 20 words at most. Each half rests on entries of the record, and
+the ledger and `/api/ledger` carry them in a `truth` field: the sentence,
+and for each half its text and the numbers of its entries. A claim that
+the record supports gives no sentence. Nor does one the record cannot
+judge: "No test command ran" is only said of a session whose commands
+could be read, which today means one in the Anthropic Messages format.
+
+What it doesn't do:
+
+- It reads the last message with patterns, not understanding. A sentence
+  that hedges, or speaks of what is still to do, is passed over, so a
+  claim worded unusually is missed. A claim it cannot place is never
+  guessed at.
+- "The test command failed" is about the last test command that reported
+  a result. The patterns for test, build, lint and install commands are a
+  short list of common tools.
+- A deletion is only set against a deletion that was held. The word is
+  used of too many things to say that none took place.
+- File changes held in a sandbox are not counted among what the agent was
+  told, and a replay has no sentence.
+- The last message is whatever the model provider last replied with text.
+  With an agent that makes requests of its own after the conversation,
+  that may not be the message you read.
 
 ## The session report
 

@@ -4,6 +4,9 @@ defineProps<{
   meta: string
   // the one sentence that says where things stand
   status: string
+  // when the session is over: what the agent said, or was told, against
+  // what was observed. Empty when there is nothing to set against anything.
+  truth: string
 }>()
 </script>
 
@@ -11,6 +14,7 @@ defineProps<{
   <div class="summary">
     <div class="meta">{{ meta }}</div>
     <h1 class="status">{{ status }}</h1>
+    <div v-if="truth !== ''" class="status">{{ truth }}</div>
   </div>
 </template>
 

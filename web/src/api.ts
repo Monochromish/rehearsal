@@ -47,10 +47,12 @@ export type EventType =
   | 'package_checked'
   | 'process_left'
   | 'process_stopped'
+  | 'agent_claims'
 // what became of a process the agent left running
 export type ProcessStatus = 'running' | 'stopped' | 'forced' | 'gone' | 'failed'
 
 const processStatuses: readonly ProcessStatus[] = ['running', 'stopped', 'forced', 'gone', 'failed']
+const truthForms: readonly Truth['form'][] = ['claim', 'told']
 const kinds: readonly Kind[] = ['real', 'canary', 'secret']
 const categories: readonly Category[] = ['provider', 'other']
 const wheres: readonly Where[] = ['address', 'header', 'body']
@@ -93,6 +95,7 @@ const eventTypes: readonly EventType[] = [
   'package_checked',
   'process_left',
   'process_stopped',
+  'agent_claims',
 ]
 
 export interface Identifier {
@@ -173,6 +176,24 @@ export interface Ledger {
   packages: PackageChecked[]
   // true when a recording is being played back and no agent is running
   replay: boolean
+  // what the agent said, or was told, set against what was observed; null
+  // while the session is not over and when there is nothing to say
+  truth: Truth | null
+}
+
+// One half of that sentence, and the numbers of the log entries it rests on.
+export interface TruthHalf {
+  text: string
+  entries: number[]
+}
+
+export interface Truth {
+  // 'claim': the agent's last message says something the record
+  // contradicts. 'told': held actions were reported to the agent as done.
+  form: 'claim' | 'told'
+  sentence: string
+  said: TruthHalf
+  observed: TruthHalf
 }
 
 export interface PackageChecked {
@@ -437,6 +458,7 @@ function parseLedger(value: unknown): Ledger {
     record: parseRecord(from['record']),
     policy: parsePolicy(from['policy']),
     replay: flag(from, 'replay', what),
+    truth: parseTruth(from['truth']),
     packages: list(from, 'packages', what, (item, itemWhat) => {
       const p = fields(item, itemWhat)
       return {
@@ -453,6 +475,20 @@ function parseLedger(value: unknown): Ledger {
       return { path: text(s, 'path', itemWhat), reason: text(s, 'reason', itemWhat), real: maybeFlag(s, 'real', itemWhat) }
     }),
   }
+}
+
+function parseTruth(value: unknown): Truth | null {
+  if (value === undefined || value === null) return null
+  const what = 'ledger.truth'
+  const from = fields(value, what)
+  const half = (key: string): TruthHalf => {
+    const h = fields(from[key], `${what}.${key}`)
+    return {
+      text: text(h, 'text', `${what}.${key}`),
+      entries: list(h, 'entries', `${what}.${key}`, (item, where) => count({ item }, 'item', where)),
+    }
+  }
+  return { form: oneOf(from, 'form', truthForms, what), sentence: text(from, 'sentence', what), said: half('said'), observed: half('observed') }
 }
 
 function parsePolicy(value: unknown): PolicyState {

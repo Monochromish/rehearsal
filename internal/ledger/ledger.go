@@ -53,6 +53,9 @@ type Ledger struct {
 	// it fetched. They carried nothing, so they were let through and noted.
 	Noted  []NotedRead `json:"noted"`
 	Report Report      `json:"report"`
+	// what the agent said, or was told, set against what was observed;
+	// nil while the session is not over and when there is nothing to say
+	Truth *Truth `json:"truth"`
 	// the user's home folder, set only for the page
 	Home string `json:"home,omitempty"`
 	// the version of rehearse that recorded the session
@@ -527,6 +530,14 @@ func Build(evs []events.Event) (Ledger, error) {
 				a.Outcome = NotApplied
 			}
 		}
+		// A replay has no agent to have said anything or been told anything.
+		if !l.Replay {
+			t, err := truth(evs, l)
+			if err != nil {
+				return l, err
+			}
+			l.Truth = t
+		}
 	}
 	return l, nil
 }
@@ -585,6 +596,9 @@ func containsWhere(list []events.Where, w events.Where) bool {
 // Text is the plain-text ledger printed in the terminal.
 func (l Ledger) Text() string {
 	var b strings.Builder
+	if l.Truth != nil {
+		fmt.Fprintf(&b, "\n%s\n", l.Truth.Sentence)
+	}
 	fmt.Fprintf(&b, "\nRehearsal ledger: %s to %s\n",
 		plural(l.Totals.Requests, "request"), plural(l.Totals.Servers, "server"))
 	groups := []struct {

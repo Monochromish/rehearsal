@@ -1215,8 +1215,8 @@ A list of sessions named "claude, 15:35" and "claude, 15:34" says nothing
 about which is which. The record now keeps the first eight words of the
 first thing the person asked, in one entry, and the list can show them.
 
-This is the only part of a conversation that is ever stored, so it is
-kept small on purpose: eight words and sixty characters at most, taken
+This was the first part of a conversation to be stored, so it is kept
+small on purpose (the second is in "Said against observed"): eight words and sixty characters at most, taken
 from the first message from the user and no later one, with watched values
 replaced by their names and anything shaped like a credential hidden. A
 note the agent program wraps in a tag for the model is passed over, and
@@ -1225,6 +1225,53 @@ The words are read from the Anthropic Messages format only, like the
 commands and the token counts. A session with another provider, or with
 no readable conversation, has no such entry and is named by the program
 and the time as before.
+
+## Said against observed
+
+The report already had "Claimed versus observed", written by the local
+model after the decision. This is the same idea reduced to one sentence
+that needs no model, so that every session has it, it is the same every
+time, and each half can be traced to entries.
+
+**Three forms, in order.** A claim the record contradicts comes first,
+because it is about the agent's own words. What the agent was told about
+held actions comes second: it is true of every session that held
+anything, so it would crowd out the rarer and sharper first form if it
+came first. When neither applies there is no sentence. A line that is
+always there is a line nobody reads.
+
+**Only what the record shows.** A claim is contradicted by an entry or
+not at all. "No test command ran" needs the session's commands to have
+been readable, and rests on the commands that were seen. "This repository
+has no new commit" is worded that way because commits made elsewhere are
+not seen. A push is judged by what became of the held push, not by the
+command, which the stand-in reported as a success.
+
+**The claim has to be an entry.** The last message was never stored, and
+a sentence that cites entries cannot rest on memory. So when the agent
+exits, the rules read the last message and write one `agent_claims` entry:
+the kind of each claim found and the first fourteen words of the sentence
+that made it, with watched values replaced by their names. That is a
+second piece of the conversation in the record, kept as small as the
+first. Sentences that claim nothing are not kept.
+
+**Patterns, tilted towards silence.** Recognising a claim is a short list
+of patterns over one sentence at a time, and a sentence with a hedge in
+it ("not", "should", "once", "if", "can") is skipped whole. A missed
+claim costs a sentence that was not shown. A claim invented from "once
+the tests pass" would be an accusation with nothing behind it.
+
+**The most serious action is named from its fields.** The same order as
+the reviewer's floor: a deletion, then a secret, a detail of yours, a
+planted value, a force push, a publish. A deletion is named from the last
+two parts of its address, so `/v1/databases/production` is "database
+production". Nothing a model wrote is in the sentence.
+
+**Built with the ledger.** The sentence is worked out wherever the ledger
+is, from the log alone, once the session is finished. So the page, the
+terminal, the report and a past session read back later all say the same
+thing, and `rehearse investigate` gets it by building the ledger from the
+record it was given.
 
 ## What the agent left running
 
