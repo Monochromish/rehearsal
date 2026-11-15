@@ -49,7 +49,10 @@ type Ledger struct {
 	// program's own telemetry and update check, and Rehearsal's own
 	// package lookups are not in it.
 	Outside []OutsideSource `json:"outside"`
-	Report  Report          `json:"report"`
+	// plain reads of a host whose address the agent learned from content
+	// it fetched. They carried nothing, so they were let through and noted.
+	Noted  []NotedRead `json:"noted"`
+	Report Report      `json:"report"`
 	// the user's home folder, set only for the page
 	Home string `json:"home,omitempty"`
 	// the version of rehearse that recorded the session
@@ -75,6 +78,15 @@ type Ledger struct {
 	Packages []events.PackageChecked `json:"packages"`
 	// true when this is a recording being played back, not a live session
 	Replay bool `json:"replay"`
+}
+
+// NotedRead is a host that a fetched page named and the agent then read
+// from, with nothing of the user's in the request.
+type NotedRead struct {
+	Host string `json:"host"`
+	// the server whose content named it
+	NamedBy  string `json:"named_by"`
+	Requests int    `json:"requests"`
 }
 
 // Policy is what the session's policy files did.
@@ -210,7 +222,7 @@ type Action struct {
 func Build(evs []events.Event) (Ledger, error) {
 	l := Ledger{
 		Phase: PhaseRunning, Watching: []events.Identifier{}, Servers: []Server{}, Actions: []Action{},
-		Outside: []OutsideSource{}, Sensitive: []events.SensitiveWrite{},
+		Outside: []OutsideSource{}, Noted: []NotedRead{}, Sensitive: []events.SensitiveWrite{},
 		Policy:   Policy{Allowed: []events.PolicyAllowed{}, Ignored: []events.PolicyIgnored{}, Offers: []Offer{}},
 		Packages: []events.PackageChecked{},
 	}
@@ -261,6 +273,14 @@ func Build(evs []events.Event) (Ledger, error) {
 			l.Totals.Requests++
 			requests[d.ID] = d
 			report.request(d)
+			if d.NamedBy != nil {
+				i := slices.IndexFunc(l.Noted, func(n NotedRead) bool { return n.Host == d.Host })
+				if i < 0 {
+					l.Noted = append(l.Noted, NotedRead{Host: d.Host, NamedBy: d.NamedBy.SourceHost})
+					i = len(l.Noted) - 1
+				}
+				l.Noted[i].Requests++
+			}
 		case events.TypeFirstInput:
 			report.inputSeen = true
 		case events.TypePackageChecked:

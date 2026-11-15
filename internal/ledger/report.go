@@ -333,6 +333,14 @@ func (l Ledger) Markdown() string {
 		}
 	}
 
+	if len(l.Noted) > 0 {
+		b.WriteString("\n## Links the agent followed\n\n")
+		for _, n := range l.Noted {
+			fmt.Fprintf(&b, "- %s, an address first seen in content from %s: %s that carried nothing of yours. Noted, not held.\n",
+				n.Host, n.NamedBy, plural(n.Requests, "plain read", "plain reads"))
+		}
+	}
+
 	if c := l.Changes; c != nil {
 		b.WriteString("\n## What changed in the project\n\n")
 		switch {

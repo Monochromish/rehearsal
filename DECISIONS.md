@@ -442,8 +442,20 @@ masked.
 
 An address counts as coming from outside content when its host was first
 seen there: a host the agent had already contacted, or a provider host, is
-never marked. Every later request to a marked host is held as high risk,
-not only the first, because the reason holds for each.
+never marked. Every later request that sends something to a marked host
+is held as high risk, not only the first, because the reason holds for
+each.
+
+A plain read of a marked host is not held. At first every request to one
+was, and an agent that followed a link in a page of documentation was
+stopped for it. A `GET` or `HEAD` with no body and no watched value in it
+goes through, and its entry names the server whose content gave the
+address, so the record still shows the link being followed. What makes
+it "plain" is checked on the request and not on its address: a watched
+value anywhere in it, a body of any length, or any other method, and it
+is held as before. A request can still say something in its path or
+query that is not watched for. That is the cost, and it is the same cost
+as for a read of any other host.
 
 Hidden text is counted in three kinds: zero-width characters (U+200B,
 U+200C, U+200D, U+2060, U+FEFF), Unicode tag characters (U+E0000 to

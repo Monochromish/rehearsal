@@ -247,6 +247,10 @@ type Request struct {
 	// true when the request carries a conversation in a format whose tool
 	// calls can be read
 	Conversation bool `json:"conversation,omitempty"`
+	// set when the host's address first appeared in content read from
+	// another server and the request was let through all the same: a
+	// plain read that carried nothing. It is noted, not held.
+	NamedBy *Provenance `json:"named_by,omitempty"`
 }
 
 // FirstInput marks the first key the user pressed that was passed on to

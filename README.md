@@ -110,9 +110,12 @@ While the agent runs, these are held instead of performed:
   provider, when its address, headers or body carries one of your details, a
   planted value or a watched secret. A read can carry data out as well as a
   write can.
-- Any request to a server whose address the agent first saw inside content it
-  fetched from somewhere else. Text in a fetched page is the usual way an
-  agent is steered by someone other than you.
+- Any request that sends something to a server whose address the agent
+  first saw inside content it fetched from somewhere else: a write, a
+  request with a body, or one carrying a watched value. Text in a fetched
+  page is the usual way an agent is steered by someone other than you. A
+  plain `GET` or `HEAD` to such a server that carries nothing goes through
+  and is noted, with the page that named it.
 - A request to the model provider that uses a different login from the first
   one seen in the session, or that uploads a file. The destination is one
   you trust, and the account may not be yours.
@@ -143,10 +146,16 @@ encrypted, hashed, split up or encoded any other way is not found.
 Every reply from a server that isn't the model provider is scanned, on a
 copy, for the addresses it mentions and for hidden text (zero-width
 characters, Unicode tag characters and HTML comments). When the agent later
-contacts a server whose address first appeared in such a reply, the request
-is held as high risk and its row says so: "The address this is going to
-first appeared in a page from example.net, read 40 seconds earlier." That
-states what was observed. It doesn't prove the page caused the request.
+sends something to a server whose address first appeared in such a reply,
+the request is held as high risk and its row says so: "The address this is
+going to first appeared in a page from example.net, read 40 seconds
+earlier." That states what was observed. It doesn't prove the page caused
+the request.
+
+Following a link is not sending something. A `GET` or `HEAD` to such a
+server, with no body and nothing in it that is watched for, goes through.
+Its entry in the record names the server whose content gave the address,
+and `rehearsal-report.md` lists it under "Links the agent followed".
 
 When the agent exits, `rehearse` stays running and the page lists what was
 held, in three groups: "Look at these" (high risk), "Probably fine" (medium)
@@ -1126,9 +1135,10 @@ for it, and `rehearse` says so when it exits.
   request would be. A value from your `.env` is held wherever it appears,
   including there.
 - Addresses in fetched content are found only when written with `http://` or
-  `https://`. A bare host name in a page is not picked up. Any later request
-  to an address a page mentioned is held, a harmless link included, so a
-  session that browses a lot will hold a lot.
+  `https://`. A bare host name in a page is not picked up. A plain read of
+  an address a page mentioned goes through, so a page can still make an
+  agent fetch something, and what the address itself says (its path and
+  query) reaches that server unless a watched value is in it.
 - The check on the model provider's login and the hold on addresses from
   fetched content have only been run against local stand-in servers, not a
   full agent session. If either holds something it shouldn't, the row says

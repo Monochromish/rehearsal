@@ -158,7 +158,7 @@ func (r *Recorder) Err() error {
 func (r *Recorder) Requestheaders(f *mitm.Flow) {
 	h := f.Request.Header
 	if strings.EqualFold(h.Get("Connection"), "Upgrade") && strings.EqualFold(h.Get("Upgrade"), "websocket") {
-		if err := r.record(f, r.scan(f, nil), true, nil); err != nil {
+		if err := r.record(f, r.scan(f, nil), true, nil, nil); err != nil {
 			refuse(f, err)
 		}
 	}
@@ -183,7 +183,7 @@ func (r *Recorder) Request(f *mitm.Flow) {
 	if provider {
 		r.readConversation(f.Request.URL.Path, body)
 	}
-	if err := r.record(f, seen, true, body); err != nil {
+	if err := r.record(f, seen, true, body, why.provenance); err != nil {
 		refuse(f, err)
 		return
 	}
@@ -323,10 +323,11 @@ func (r *Recorder) StreamRequestModifier(f *mitm.Flow, in io.Reader) io.Reader {
 	// Returning a reader that fails makes the upstream request fail, which
 	// is the only way left to stop it at this point.
 	seen := r.scan(f, nil)
-	if _, held := r.holds(f.Request, seen); held {
+	why, held := r.holds(f.Request, seen)
+	if held {
 		return failingReader{fmt.Errorf("rehearse cannot hold a request body over %d MB, so the request was not sent", maxBodyInMemory>>20)}
 	}
-	if err := r.record(f, seen, false, nil); err != nil {
+	if err := r.record(f, seen, false, nil, why.provenance); err != nil {
 		return failingReader{err}
 	}
 	return in
@@ -392,7 +393,20 @@ func (r *Recorder) holds(req *mitm.Request, seen []events.IdentifierSeen) (held,
 	from, after := r.outside.contact(displayHost(req.URL), time.Now())
 	why := held{provenance: from, after: after}
 	write := r.holding.Writes && slices.Contains(writeMethods, req.Method) && !slices.Contains(r.holding.Allow, host)
-	return why, write || len(seen) > 0 || from != nil
+	return why, write || len(seen) > 0 || (from != nil && !plainRead(req))
+}
+
+// plainRead reports whether a request only asks for something: a GET or a
+// HEAD with no body. Following a link a page named is that, and is let
+// through and noted when it carries nothing that is watched for.
+func plainRead(req *mitm.Request) bool {
+	if req.Method != http.MethodGet && req.Method != http.MethodHead {
+		return false
+	}
+	if raw := req.Raw(); raw != nil && raw.ContentLength != 0 {
+		return false // a body, or one of a length the client did not say
+	}
+	return len(req.Body) == 0
 }
 
 // unfamiliar reports whether a request to the model provider comes in a
@@ -590,7 +604,7 @@ func (r *Recorder) scan(f *mitm.Flow, body []byte) []events.IdentifierSeen {
 
 // record writes the request event and what was found in the request. body
 // is the request's body when it was read, nil when it was too large.
-func (r *Recorder) record(f *mitm.Flow, seen []events.IdentifierSeen, bodyChecked bool, body []byte) error {
+func (r *Recorder) record(f *mitm.Flow, seen []events.IdentifierSeen, bodyChecked bool, body []byte, namedBy *events.Provenance) error {
 	if err := r.Err(); err != nil {
 		return err
 	}
@@ -607,6 +621,7 @@ func (r *Recorder) record(f *mitm.Flow, seen []events.IdentifierSeen, bodyChecke
 		RequestBytes: size,
 		Category:     r.category(req.URL.Hostname()),
 		BodyChecked:  bodyChecked,
+		NamedBy:      namedBy,
 	}
 	if ev.Category == events.CategoryProvider {
 		ev.Model = observe.Model(body)

