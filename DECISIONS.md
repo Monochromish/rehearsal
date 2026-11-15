@@ -478,11 +478,21 @@ body. Token counts come from the `usage` object of the reply, in its plain
 and streamed forms. A count the reply does not state is recorded as unknown
 and shown as "not available", and a total is unknown when any part of it is.
 
-Tool calls and their results are read from the conversation history that
-the Anthropic Messages format repeats in every request, behind an interface
-in `internal/observe` so another format can be added. Each call is recorded
+Tool calls and their results are read behind an interface in
+`internal/observe`, so another format can be added. Each call is recorded
 once, by its ID. Streamed provider replies go straight through to the agent.
 A copy of at most 8 MB is kept as they pass and read when the stream ends.
+
+At first both were read from the conversation history, which the Anthropic
+Messages format was taken to repeat in every request. A real session
+showed otherwise: after the first turns, Claude Code sent requests of
+about a kilobyte that held the result of the last call and nothing before
+it. Results were recorded and the calls they belonged to were not, so a
+session that ran six commands reported one. A call is now read from the
+reply that asks for it, where a stream sends its input in pieces, and also
+from any request that does repeat it. Whichever comes first is kept. The
+call and its result are written by different routines, so nothing that
+reads the log may assume the call comes first.
 
 The three integrity flags are pattern matches on what was observed:
 `--no-verify` on a `git commit` or `git push`; a change to a file that looks

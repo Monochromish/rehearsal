@@ -93,6 +93,53 @@ func TestProviderRequestsAreRead(t *testing.T) {
 	}
 }
 
+// An agent may send only the newest part of the conversation: after the
+// first turns, a request holds the result of the last call and not the
+// call. The call is then taken from the reply that asked for it.
+func TestToolCallsAreReadFromRepliesWhenRequestsDoNotRepeatThem(t *testing.T) {
+	h := carrying(t)
+	const reply = "event: content_block_start\n" +
+		`data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_20","name":"Bash","input":{}}}` + "\n\n" +
+		"event: content_block_delta\n" +
+		`data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"command\": \"curl -H 'Authorization: Bearer abcdef0123456789' "}}` + "\n\n" +
+		"event: content_block_delta\n" +
+		`data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"https://x.test\"}"}}` + "\n\n" +
+		"event: message_delta\n" +
+		`data: {"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":20}}` + "\n\n"
+
+	asked := messages(t, []byte(`{"model":"m","messages":[{"role":"user","content":"Check that the service answers, please"}]}`))
+	h.rec.Request(asked)
+	asked.Stream = true
+	asked.Response = &mitm.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"text/event-stream"}}}
+	if _, err := io.ReadAll(h.rec.StreamResponseModifier(asked, strings.NewReader(reply))); err != nil {
+		t.Fatal(err)
+	}
+	// the copy is read off the stream's path, so wait for it
+	var actions []events.AgentAction
+	for deadline := time.Now().Add(5 * time.Second); len(actions) == 0 && time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		actions = decoded[events.AgentAction](t, h.log, events.TypeAgentAction)
+	}
+	if len(actions) != 1 || actions[0].ID != "toolu_20" || actions[0].Kind != "shell" || !strings.HasPrefix(actions[0].Text, "curl -H") {
+		t.Fatalf("actions after the reply = %+v, want the one command it asked for", actions)
+	}
+	if strings.Contains(actions[0].Text, "abcdef0123456789") {
+		t.Errorf("the logged command contains the credential: %s", actions[0].Text)
+	}
+
+	// the next request carries the result alone
+	h.rec.Request(messages(t, []byte(`{"model":"m","messages":[{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_20","content":"This command requires approval","is_error":true}]}]}`)))
+	// and a later one repeats the whole conversation, call included
+	h.rec.Request(messages(t, []byte(`{"model":"m","messages":[{"role":"user","content":"Check that the service answers, please"},
+		{"role":"assistant","content":[{"type":"tool_use","id":"toolu_20","name":"Bash","input":{"command":"cd /home/ada/shop && curl https://x.test"}}]},
+		{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_20","content":"This command requires approval","is_error":true}]}]}`)))
+
+	actions = decoded[events.AgentAction](t, h.log, events.TypeAgentAction)
+	results := decoded[events.AgentResult](t, h.log, events.TypeAgentResult)
+	if len(actions) != 1 || len(results) != 1 || results[0].ID != "toolu_20" || !results[0].Failed {
+		t.Errorf("actions %+v and results %+v, want the call once and its failed result once", actions, results)
+	}
+}
+
 func TestSecretsInCommandsAreMasked(t *testing.T) {
 	h := carrying(t)
 	body := `{"model":"m","messages":[{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Bash",

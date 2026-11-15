@@ -194,8 +194,10 @@ func (r *Recorder) Request(f *mitm.Flow) {
 }
 
 // readConversation writes down the tool calls and results in a request
-// to the provider that have not been written down already. Each request
-// carries the whole conversation so far, so most of it has been.
+// to the provider that have not been written down already. A request may
+// carry the whole conversation so far, and then most of it has been. It
+// may also carry only the newest part: the results of the last calls and
+// not the calls themselves, which readReply takes from the reply.
 func (r *Recorder) readConversation(path string, body []byte) {
 	format := observe.For(path)
 	if format == nil {
@@ -209,14 +211,7 @@ func (r *Recorder) readConversation(path string, body []byte) {
 			r.titled = true
 		}
 	}
-	var newCalls []observe.Call
 	var newResults []observe.Result
-	for _, c := range calls {
-		if !r.calls[c.ID] {
-			r.calls[c.ID] = true
-			newCalls = append(newCalls, c)
-		}
-	}
 	for _, res := range results {
 		if !r.results[res.CallID] {
 			r.results[res.CallID] = true
@@ -227,15 +222,31 @@ func (r *Recorder) readConversation(path string, body []byte) {
 	if first != "" {
 		r.append(events.TypeFirstMessage, events.FirstMessage{Words: redact.Text(r.matcher.Mask(first))})
 	}
-	for _, c := range newCalls {
+	r.noteCalls(calls)
+	for _, res := range newResults {
+		r.append(events.TypeAgentResult, events.AgentResult{ID: res.CallID, Failed: res.Failed})
+	}
+}
+
+// noteCalls writes down the tool calls that have not been written down
+// already. A call is seen first in the reply that asks for it, and again
+// in each later request that repeats the conversation.
+func (r *Recorder) noteCalls(calls []observe.Call) {
+	r.seen.Lock()
+	var fresh []observe.Call
+	for _, c := range calls {
+		if !r.calls[c.ID] {
+			r.calls[c.ID] = true
+			fresh = append(fresh, c)
+		}
+	}
+	r.seen.Unlock()
+	for _, c := range fresh {
 		text := redact.Text(c.Text)
 		if runes := []rune(text); len(runes) > maxCallText {
 			text = string(runes[:maxCallText]) + "..."
 		}
 		r.append(events.TypeAgentAction, events.AgentAction{ID: c.ID, Tool: c.Tool, Kind: string(c.Kind), Text: text})
-	}
-	for _, res := range newResults {
-		r.append(events.TypeAgentResult, events.AgentResult{ID: res.CallID, Failed: res.Failed})
 	}
 }
 
@@ -256,6 +267,7 @@ func (r *Recorder) readReply(f *mitm.Flow, reply []byte, streamed bool) {
 			Input: u.Input, Output: u.Output, CacheRead: u.CacheRead, CacheWrite: u.CacheWrite,
 		})
 	}
+	r.noteCalls(format.ReplyCalls(reply, streamed))
 	if text := format.FinalText(reply, streamed); text != "" {
 		r.seen.Lock()
 		r.finalText = text

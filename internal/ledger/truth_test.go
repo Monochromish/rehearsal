@@ -436,3 +436,39 @@ func TestClaims(t *testing.T) {
 		t.Errorf("a long sentence is kept as %+v, want its first 14 words", long)
 	}
 }
+
+// Sentences of the kind a real agent ended a session with, when it had
+// been stopped from doing what it was asked. Each has a claim's word in
+// it and claims nothing.
+func TestSentencesThatSayNothingWasDoneAreNotClaims(t *testing.T) {
+	for _, text := range []string{
+		"The working tree was already clean and I changed nothing, so I made no commit and pushed nothing.",
+		"There is nothing to commit or push.",
+		"I tried to run it, but that command needs approval in this session, so the tests have not passed or failed.",
+		"Nothing was committed, and no branch was pushed.",
+		"I haven't installed anything or deleted any file.",
+		"Running it was blocked, so neither the build nor the tests pass yet.",
+		"None of it was pushed.",
+	} {
+		if got := Claims(text); len(got) != 0 {
+			t.Errorf("%q: read as claiming %+v", text, got)
+		}
+	}
+}
+
+// A call is read from a reply and its result from the next request, by
+// two routines, so the result can be written first.
+func TestTruthDoesNotDependOnWhichOfACallAndItsResultIsWrittenFirst(t *testing.T) {
+	evs := log(t,
+		events.TypeSessionStarted, events.SessionStarted{Command: []string{"agent"}},
+		events.TypeRequest, conversation,
+		events.TypeAgentResult, events.AgentResult{ID: "t1", Failed: true},
+		events.TypeAgentAction, shell("t1", "npm test"),
+		events.TypeAgentClaims, claims("tests", "All tests pass"),
+		events.TypeSessionEnded, events.SessionEnded{},
+	)
+	tr := truthOf(t, evs)
+	if tr == nil || tr.Sentence != "Agent said tests pass. The test command failed." || !slices.Equal(tr.Observed.Entries, []int64{4, 3}) {
+		t.Fatalf("truth = %+v", tr)
+	}
+}

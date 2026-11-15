@@ -1201,8 +1201,13 @@ for it, and `rehearse` says so when it exits.
   fetched content have only been run against local stand-in servers, not a
   full agent session. If either holds something it shouldn't, the row says
   why, and `--no-provider-check` turns the first one off.
-- The agent's commands and token counts are read from requests in the
-  Anthropic Messages format. The samples the tests use were written by hand
+- The agent's commands and token counts are read from traffic in the
+  Anthropic Messages format: a command from the reply that asks for it,
+  or from a later request that repeats the conversation, and its result
+  from the request that reports it. Claude Code 2.1.325 was seen to send
+  only the newest part of the conversation after the first turns, so most
+  of its commands appear in replies alone. Reading them from replies was
+  added after that was seen, and is tested with samples written by hand
   from the published format, not captured from a session.
 - Requests before your first key press are counted by watching the input on
   its way to the agent. When input comes from a terminal and output goes to a
@@ -1262,12 +1267,19 @@ for it, and `rehearse` says so when it exits.
   reviewer model. Open the citations.
 - The app window is not in this repository, has been run on Linux only, and
   has not been used by a person on a live session.
-- It has been run on one setup: Ubuntu 26.04 under WSL2 on ARM64. Only the
-  ledger and the holds on pushes have been run with Claude Code itself.
-  Everything added since (secrets and addresses from fetched content, the
-  report's commands and tokens, the record, the sandbox, the policy file,
-  the package check, replay, the record of changes and their sorting, review,
-  investigate) has been run with shell scripts standing in for an agent. Every automated test talks only to servers on the same machine.
+- It has been run on one setup: Ubuntu 26.04 under WSL2 on ARM64. With
+  Claude Code itself, two things have been run. The ledger and the holds on
+  pushes were, early on. Later, three sessions of `claude -p` in the demo
+  project, asked to follow the README, run the tests, commit and push: the
+  ledger, the first words, models, tokens, the report, the record,
+  `investigate`, `record` and `replay` all ran without an error. No hold
+  was exercised in those three, because the agent refused the hidden
+  instruction and its own permission mode refused its commands. Everything
+  else (secrets and addresses from fetched content, the sandbox, the
+  policy file, the package check, the record of changes and their sorting,
+  review, what the agent left running) has been run with shell scripts
+  standing in for an agent. Every automated test talks only to servers on
+  the same machine.
 
 ## Development
 

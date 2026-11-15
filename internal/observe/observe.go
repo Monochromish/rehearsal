@@ -62,6 +62,11 @@ func (u Usage) Known() bool {
 type Format interface {
 	// Calls lists the tool calls and results in a request's conversation.
 	Calls(request []byte) ([]Call, []Result)
+	// ReplyCalls lists the tool calls the model asks for in a reply, plain
+	// or streamed. An agent that sends only the newest part of the
+	// conversation never repeats them in a request, so the reply is the
+	// one place they are sure to be.
+	ReplyCalls(reply []byte, streamed bool) []Call
 	// Usage reads token counts from a reply, plain or streamed.
 	Usage(reply []byte, streamed bool) Usage
 	// FinalText is what the model said in a reply, without its tool calls.
@@ -183,8 +188,13 @@ type anthropicEvent struct {
 	Delta struct {
 		Type string `json:"type"`
 		Text string `json:"text"`
+		// a piece of a tool call's input, which a stream sends as text
+		PartialJSON string `json:"partial_json"`
 	} `json:"delta"`
 	Content []anthropicBlock `json:"content"`
+	// in a stream: which block an event is about, and the block as it opens
+	Index        int            `json:"index"`
+	ContentBlock anthropicBlock `json:"content_block"`
 }
 
 // events calls each with every JSON object in a reply: the reply itself
@@ -221,6 +231,46 @@ func (a anthropic) Usage(reply []byte, streamed bool) Usage {
 		ev.Usage.into(&u)
 	})
 	return u
+}
+
+func (a anthropic) ReplyCalls(reply []byte, streamed bool) []Call {
+	var calls []Call
+	// A stream opens a tool call with its name and an empty input, sends
+	// the input as pieces of JSON text, and closes it.
+	type opened struct {
+		block anthropicBlock
+		input strings.Builder
+	}
+	open := map[int]*opened{}
+	var order []int
+	a.events(reply, streamed, func(ev anthropicEvent) {
+		for _, b := range ev.Content {
+			if b.Type == "tool_use" {
+				calls = append(calls, anthropicCall(b))
+			}
+		}
+		switch ev.Type {
+		case "content_block_start":
+			if ev.ContentBlock.Type == "tool_use" && open[ev.Index] == nil {
+				open[ev.Index] = &opened{block: ev.ContentBlock}
+				order = append(order, ev.Index)
+			}
+		case "content_block_delta":
+			if o := open[ev.Index]; o != nil && ev.Delta.Type == "input_json_delta" {
+				o.input.WriteString(ev.Delta.PartialJSON)
+			}
+		}
+	})
+	for _, i := range order {
+		o := open[i]
+		// a stream that was cut short leaves an input that cannot be read,
+		// and the call then has no command or path to show
+		if o.input.Len() > 0 {
+			o.block.Input = json.RawMessage(o.input.String())
+		}
+		calls = append(calls, anthropicCall(o.block))
+	}
+	return calls
 }
 
 func (a anthropic) FinalText(reply []byte, streamed bool) string {

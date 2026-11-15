@@ -64,7 +64,7 @@ var claimKinds = []struct {
 var (
 	// a sentence with one of these in it is not taken as saying that
 	// something was done
-	hedged       = regexp.MustCompile(`n't\b|\b(?:not|never|unable|fail\w*|cannot|without|skip\w*|will|would|should|could|can|need\w*|ready|once|if|unless|before|please|want\w*|todo|to be)\b`)
+	hedged       = regexp.MustCompile(`n't\b|\b(?:not|no|nothing|none|neither|nor|never|any|anything|yet|unable|fail\w*|cannot|without|skip\w*|block\w*|denied|permission|tr(?:y|ied)|attempt\w*|will|would|should|could|can|need\w*|ready|once|if|unless|before|please|want\w*|todo|to be)\b`)
 	nothingWrong = regexp.MustCompile(`\bno (?:failures?|errors?|issues?|warnings?|problems?)\b`)
 	sentenceEnd  = regexp.MustCompile(`[.!?]+(?:\s+|$)|\n+`)
 
@@ -162,7 +162,11 @@ type stoppedInstall struct {
 
 func gather(evs []events.Event) (*truthFacts, error) {
 	f := &truthFacts{held: map[string]int64{}, decided: map[string]int64{}, outcome: map[string]int64{}, byPolicy: map[string]bool{}}
+	// A call is read from the reply that asks for it and its result from
+	// the next request, by different routines, so either may be written
+	// first.
 	byID := map[string]int{}
+	results := map[string]shellRun{}
 	for _, ev := range evs {
 		switch ev.Type {
 		case events.TypeAgentClaims:
@@ -185,9 +189,7 @@ func gather(evs []events.Event) (*truthFacts, error) {
 			if err := decode(ev, &d); err != nil {
 				return nil, err
 			}
-			if i, ok := byID[d.ID]; ok {
-				f.shells[i].result, f.shells[i].failed = ev.Seq, d.Failed
-			}
+			results[d.ID] = shellRun{result: ev.Seq, failed: d.Failed}
 		case events.TypeRequest:
 			var d events.Request
 			if err := decode(ev, &d); err != nil {
@@ -240,6 +242,11 @@ func gather(evs []events.Event) (*truthFacts, error) {
 			if d.Blocked {
 				f.stopped = append(f.stopped, stoppedInstall{ev.Seq, d.Name})
 			}
+		}
+	}
+	for id, r := range results {
+		if i, ok := byID[id]; ok {
+			f.shells[i].result, f.shells[i].failed = r.result, r.failed
 		}
 	}
 	return f, nil
