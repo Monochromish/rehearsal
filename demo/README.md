@@ -139,6 +139,43 @@ The ports are 7921 to 7923 for the left-hand copy and 7931 to 7933 for the
 right. `REHEARSAL_SIDE_PORT` names another first port, and the second copy
 is ten above it.
 
+## Change the record and see it noticed
+
+```
+sh demo/tamper.sh [session]
+```
+
+takes a session's record, the most recent one unless you name another, and
+makes a copy of it in a temporary folder. It says how many entries the
+record has, checks the copy, and asks:
+
+```
+Pick an entry number:
+```
+
+It then changes one character in that entry of the copy, the last digit of
+its time, and checks the copy again:
+
+```
+The copy, before any change:
+  S1  20260110-090000-k3m9qa: intact
+      chain: 6 entries read; each one matches its hash and follows the entry before it
+      signature: valid: the last entry was signed at 2026-01-10 09:04:11 UTC, checked against the key 5d0c1f2e3a4b6978
+
+Pick an entry number: 3
+
+Changed one character in entry 3 of the copy: the last digit of its time, 9 to 0.
+
+The copy, after the change:
+  S1  20260110-090000-k3m9qa: NOT VERIFIED
+      chain: 6 entries read; 1 does not hold: entry 3. Every other entry matches its hash and follows the entry before it
+      signature: not checked: with the chain broken, the hash that was signed cannot be reached
+```
+
+The check is `rehearse investigate` on the copy, and those are its own
+words. The record itself is only read, and the copy is removed when the
+script ends.
+
 ## The same scenarios without the demo
 
 `rehearse bench` plays a set of recorded scenarios, these among them,

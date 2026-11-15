@@ -581,6 +581,8 @@ rehearse verify [session]
 Recomputes the chain and checks the signature. If anything was edited,
 removed or reordered it exits 1 and names the first entry that doesn't
 match. The page shows the same check as one line at the end of a session.
+To see it happen, `sh demo/tamper.sh` changes one character in a copy of
+a record, at an entry you pick, and runs the check on the copy.
 
 ```
 rehearse export [session] --format jsonl
